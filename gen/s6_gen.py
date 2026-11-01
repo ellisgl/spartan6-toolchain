@@ -25,7 +25,7 @@ def main():
     args = ap.parse_args()
 
     sys.path.insert(0, path.join(args.nextpnr, "himbaechel"))
-    from himbaechel_dbgen.chip import Chip, NodeWire, PinType
+    from himbaechel_dbgen.chip import BEL_FLAG_GLOBAL, Chip, NodeWire, PinType
 
     with open(args.json) as f:
         dev = json.load(f)
@@ -46,12 +46,28 @@ def main():
             tt.create_pip(names[p["src"]], names[p["dst"]], p["kind"])
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])
+            # Slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM (read by the uarch).
+            bel.site = b.get("site_kind", 0)
             for pin in b["pins"]:
                 tt.add_bel_pin(bel, pin["name"], names[pin["wire"]], pin_dir[pin["dir"]])
 
+    # Global constant drivers. router2 routes constant nets back to any wire
+    # whose const_value matches (TIE_0/TIE_1 and the slices' CONST_* wires),
+    # so these bels only give the GND/VCC nets a driver to be placed on.
+    corner = dev["tiles"][0]
+    assert (corner["x"], corner["y"]) == (0, 0)
+    assert sum(1 for t in dev["tiles"] if t["type"] == corner["type"]) == 1, \
+        "corner tile type is shared; pseudo constant bels would be duplicated"
+    tt = ch.tile_types[corner["type"]]
+    for i, (name, value) in enumerate([("PSEUDO_GND", "GND"), ("PSEUDO_VCC", "VCC")]):
+        tt.create_wire(f"{name}.Y", "CONST", const_value=value)
+        bel = tt.create_bel(name, name, z=0x1F0 + i)
+        bel.flags |= BEL_FLAG_GLOBAL
+        tt.add_bel_pin(bel, "Y", f"{name}.Y", PinType.OUTPUT)
+
+    # Tile names are "X{x}Y{y}": himbaechel appends that to name_prefix, which stays empty.
     for t in dev["tiles"]:
-        inst = ch.set_tile_type(t["x"], t["y"], dev["tile_types"][t["type"]]["name"])
-        inst.name_prefix = ch.strs.id(t["name"])
+        ch.set_tile_type(t["x"], t["y"], dev["tile_types"][t["type"]]["name"])
 
     for node in dev["nodes"]:
         ch.add_node([NodeWire(x, y, w) for x, y, w in node])

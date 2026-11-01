@@ -14,6 +14,9 @@
 //!   canonical wire (`ExpandedGrid::resolve_wire`);
 //! - pips come from switchbox items, one pip per source/destination pair.
 
+mod io;
+mod slice;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
@@ -90,8 +93,15 @@ struct OutBel {
     /// prjcombine bel class (differs from `type` only for slices).
     class: String,
     z: usize,
+    /// For slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM. 0 otherwise.
+    #[serde(skip_serializing_if = "is_zero")]
+    site_kind: u32,
     tile_slot: String,
     pins: Vec<OutBelPin>,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
 }
 
 #[derive(Serialize)]
@@ -222,7 +232,32 @@ impl TypeBuilder {
         i
     }
 
+    /// Get or create a tile-local constant source wire ("GND" or "VCC").
+    /// router2 ends constant nets on any wire with a matching const_value,
+    /// so these need no driver.
+    fn const_wire(&mut self, value: &str) -> usize {
+        let name = format!("CONST_{value}");
+        if let Some(&i) = self.wire_idx.get(&name) {
+            return i;
+        }
+        let i = self.out.wires.len();
+        self.out.wires.push(OutWire {
+            name: name.clone(),
+            kind: "CONST".into(),
+            const_value: value.into(),
+        });
+        self.sources.push(vec![]);
+        self.wire_idx.insert(name, i);
+        i
+    }
+
     fn pip(&mut self, src: usize, dst: usize, kind: &'static str, inv: bool, src_ref: Vec<String>) {
+        // Factory-test wiring (OUT_TEST, CMT_TEST_CLK, TEST_PLL_CLKIN) is not
+        // meant for designs; left in, router2 used it to detour global clocks
+        // through the PLL's test clock path.
+        if is_test_wire(&self.out.wires[src].name) || is_test_wire(&self.out.wires[dst].name) {
+            return;
+        }
         self.out.pips.push(OutPip { src, dst, kind, inv, src_ref });
     }
 }
@@ -256,6 +291,11 @@ fn bel_type(bslot: BelSlotId, class: &str, tcls: &str) -> String {
     } else {
         panic!("unexpected slice {bslot:?} in tile class {tcls}")
     }
+}
+
+fn is_test_wire(local_name: &str) -> bool {
+    // Local names may carry a "CLASS.CELL[n]." prefix; test only the wire part.
+    local_name.rsplit('.').next().unwrap_or(local_name).contains("TEST")
 }
 
 fn pin_name(base: &str, idx: EntityBundleItemIndex, virt: impl Fn(usize) -> usize) -> String {
@@ -379,20 +419,38 @@ fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
                         let wire = tb.wire(db, slot, tcls, w);
                         pins.push(OutBelPin { name, wire, dir: "INOUT", inv: false, invertible: false });
                     }
+                    let bel_type = bel_type(bslot, bcls.name.as_str(), tcls.name.as_str());
+                    if bcls.name == "SLICE" {
+                        // Replace the site-level slice with LUT/FF/mux/carry sub-bels.
+                        slice::expand(&mut tb, db, &bslot_name, &bel_type, bcls, bel, &slot_name, &pins);
+                        continue;
+                    }
                     tb.out.bels.push(OutBel {
-                        bel_type: bel_type(bslot, bcls.name.as_str(), tcls.name.as_str()),
+                        bel_type,
                         class: bcls.name.clone(),
                         name: bslot_name,
                         z: bslot.to_idx(),
+                        site_kind: 0,
                         tile_slot: slot_name.clone(),
                         pins,
                     });
                 }
-                // Test-only muxes: not usable by designs.
-                BelInfo::TestMux(_) => {}
+                // Factory test muxes. In normal operation each destination is
+                // driven by its primary source; that path is how bel outputs
+                // reach the interconnect in INTF tiles, so export it as an
+                // always-on pip. The test-mode sources are never used.
+                BelInfo::TestMux(tm) => {
+                    for (item_idx, (&dst, tw)) in tm.wires.iter().enumerate() {
+                        let d = tb.wire(db, slot, tcls, dst);
+                        let s = tb.wire(db, slot, tcls, tw.primary_src.tw);
+                        let r = vec![slot_name.clone(), bslot_name.clone(), item_idx.to_string()];
+                        tb.pip(s, d, "TESTMUX", tw.primary_src.inv, r);
+                    }
+                }
             }
         }
     }
+    io::merge_iob_paths(&mut tb);
     tb
 }
 
@@ -467,6 +525,18 @@ fn main() {
         }
     }
     let mut nodes: Vec<Vec<[usize; 3]>> = nodes.into_values().filter(|n| n.len() > 1).collect();
+
+    // Dedicated carry chain: COUT (= CO3, the D carry) of the slice below
+    // drives CIN. prjcombine has no wire for it, so join the synthesized wires.
+    let (cout, cin) = (slice::carry_out_wire(), slice::carry_in_wire());
+    let tile_at: HashMap<(usize, usize), usize> = tiles.iter().map(|t| ((t.x, t.y), t.tile_type)).collect();
+    for t in &tiles {
+        if let Some([px, py]) = t.carry_prev {
+            let prev = &types[tile_at[&(px, py)]];
+            let here = &types[t.tile_type];
+            nodes.push(vec![[px, py, prev.wire_idx[&cout]], [t.x, t.y, here.wire_idx[&cin]]]);
+        }
+    }
     nodes.sort();
 
     // Package pins.

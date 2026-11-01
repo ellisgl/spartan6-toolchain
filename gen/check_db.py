@@ -88,45 +88,87 @@ def main():
             failures += 1
 
     counts = collections.Counter(b["type"] for _, _, b in g.bels())
+    # Slices are split into sub-bels; count each slice once via its A6LUT.
+    kinds = {1: "SLICEX", 2: "SLICEL", 3: "SLICEM"}
+    for _, _, b in g.bels("SLICE_LUT"):
+        if b["name"].endswith(".A6LUT"):
+            counts[kinds[b["site_kind"]]] += 1
     if d["device"] == "xc6slx9":
         for k, v in EXPECTED_XC6SLX9.items():
             check(counts[k] == v, f"{k}: {counts[k]} (expected {v})")
+        check(counts["CARRY4"] == 715, f"CARRY4: {counts['CARRY4']} (expected 715, one per SLICEL/SLICEM)")
         pkg = next(p for p in d["packages"] if p["name"] == "tqg144")
         n_io = sum(1 for p in pkg["pins"] if p.get("io"))
         check(n_io == EXPECTED_TQG144_USER_IO, f"TQG144 user I/O: {n_io} (expected {EXPECTED_TQG144_USER_IO})")
 
-    # Path checks. Bels are not route-throughs, so each hop through a bel
-    # (IOB -> BUFIO2 -> BUFGMUX) is checked separately.
-    pins = lambda t, pin: [g.pin_node(x, y, b, pin) for x, y, b in g.bels(t) if any(p["name"] == pin for p in b["pins"])]
+    def bel_at(x, y, name):
+        return next(b for bx, by, b in g.bels() if (bx, by) == (x, y) and b["name"] == name)
 
-    slices = sorted(g.bels("SLICEX"), key=lambda e: (e[0], e[1]))
-    near, far = slices[0], slices[-1]
-    h = g.reachable(g.pin_node(near[0], near[1], near[2], "AQ"), [g.pin_node(far[0], far[1], far[2], "A1")])
-    check(h is not None, f"SLICEX X{near[0]}Y{near[1]} AQ -> SLICEX X{far[0]}Y{far[1]} A1 ({h} hops)")
+    def pin(x, y, name, p):
+        return g.pin_node(x, y, bel_at(x, y, name), p)
+
+    def all_pins(bel_type, p, pred=lambda b: True):
+        return [g.pin_node(x, y, b, p) for x, y, b in g.bels(bel_type) if pred(b) and any(q["name"] == p for q in b["pins"])]
+
+    def path(msg, src, dsts):
+        h = g.reachable(src, dsts if isinstance(dsts, list) else [dsts])
+        check(h is not None, f"{msg} ({h} hops)")
+
+    # Logic: pick the lowest and highest SLICEX on the die.
+    xs = sorted((x, y) for x, y, b in g.bels("SLICE_LUT") if b["site_kind"] == 1 and b["name"] == "SLICE[1].A6LUT")
+    (nx, ny), (fx, fy) = xs[0], xs[-1]
+    path("LUT6 O -> own FF D (site mux)", pin(nx, ny, "SLICE[1].A6LUT", "O"), pin(nx, ny, "SLICE[1].AFF", "D"))
+    path("LUT5 O -> own FF D (site mux)", pin(nx, ny, "SLICE[1].A5LUT", "O"), pin(nx, ny, "SLICE[1].AFF", "D"))
+    path(f"FF Q X{nx}Y{ny} -> LUT A1 X{fx}Y{fy}", pin(nx, ny, "SLICE[1].AFF", "Q"), pin(fx, fy, "SLICE[1].B6LUT", "A1"))
+    path("5FF Q -> fabric (via AMUX)", pin(nx, ny, "SLICE[1].A5FF", "Q"), pin(fx, fy, "SLICE[1].B6LUT", "A1"))
+
+    # Carry: CO3 of one slice reaches CI of the slice above through the dedicated wire.
+    cx, cy_ = next((x, y) for x, y, b in g.bels("CARRY4") if (x, y + 1) in g.tile_at
+                   and any(bb["type"] == "CARRY4" for bb in g.tt[g.tile_at[(x, y + 1)]["type"]]["bels"]))
+    above = g.tile_at[(cx, cy_ + 1)]
+    check(above.get("carry_prev") == [cx, cy_], f"carry_prev of X{cx}Y{cy_ + 1} is X{cx}Y{cy_}")
+    path("CARRY4 CO3 -> CARRY4 CI above", pin(cx, cy_, "SLICE[0].CARRY4", "CO3"), pin(cx, cy_ + 1, "SLICE[0].CARRY4", "CI"))
+    check(g.reachable(pin(cx, cy_, "SLICE[0].CARRY4", "O0"), [pin(cx, cy_, "SLICE[0].AFF", "D")]) == 1,
+          "CARRY4 O0 -> AFF D in one site pip")
 
     if d["device"] == "xc6slx9":
         pkg = next(p for p in d["packages"] if p["name"] == "tqg144")
-        p56 = next(p for p in pkg["pins"] if p["pin"] == "P56")["io"]
-        iob = next(b for x, y, b in g.bels("IOB") if (x, y) == (p56["x"], p56["y"]) and b["name"] == p56["bel"])
-        src = g.pin_node(p56["x"], p56["y"], iob, "I")
-        h = g.reachable(src, pins("BUFIO2", "I"))
-        check(h is not None, f"P56 (Mojo clock) IOB.I -> BUFIO2.I ({h} hops)")
-        h = g.reachable(src, pins("BUFGMUX", "I0") + pins("BUFGMUX", "I1"))
-        print(f"INFO P56 IOB.I -> BUFGMUX directly: {'yes, ' + str(h) + ' hops' if h is not None else 'no'}")
-
-    bufio_out = pins("BUFIO2", "DIVCLK")
-    hits = sum(1 for s in bufio_out if g.reachable(s, pins("BUFGMUX", "I0") + pins("BUFGMUX", "I1")) is not None)
-    check(hits > 0, f"BUFIO2.DIVCLK -> BUFGMUX input: {hits}/{len(bufio_out)} BUFIO2s")
+        def io_pin(pkg_pin, p):
+            io = next(q for q in pkg["pins"] if q["pin"] == pkg_pin)["io"]
+            return pin(io["x"], io["y"], io["bel"], p)
+        bufg_in = all_pins("BUFGMUX", "I0") + all_pins("BUFGMUX", "I1")
+        path("P56 (Mojo clock) GCLK_I -> BUFGMUX", io_pin("P56", "GCLK_I"), bufg_in)
+        path("P56 I (data path) -> LUT A1", io_pin("P56", "I"), pin(fx, fy, "SLICE[1].B6LUT", "A1"))
+        path("FF Q -> P134 (Mojo LED0) O", pin(fx, fy, "SLICE[1].AFF", "Q"), io_pin("P134", "O"))
+        path("FF Q -> P134 T", pin(fx, fy, "SLICE[1].AFF", "Q"), io_pin("P134", "T"))
 
     bufg = next(g.bels("BUFGMUX"))
-    h = g.reachable(g.pin_node(bufg[0], bufg[1], bufg[2], "O"), [g.pin_node(far[0], far[1], far[2], "CLK")])
-    check(h is not None, f"BUFGMUX O -> SLICEX X{far[0]}Y{far[1]} CLK ({h} hops)")
+    path("BUFGMUX O -> FF CK", g.pin_node(bufg[0], bufg[1], bufg[2], "O"), pin(fx, fy, "SLICE[1].AFF", "CK"))
 
-    # Graph hygiene: nodes that can never carry a signal.
-    out_pin_nodes = {g.pin_node(x, y, b, p["name"]) for x, y, b in g.bels() for p in b["pins"] if p["dir"] != "IN"}
-    in_pin_nodes = {g.pin_node(x, y, b, p["name"]) for x, y, b in g.bels() for p in b["pins"] if p["dir"] != "OUT"}
-    undriven_inputs = [n for n in in_pin_nodes if n not in g.has_uphill and n not in out_pin_nodes]
-    print(f"INFO bel input nodes with no driver at all: {len(undriven_inputs)} of {len(in_pin_nodes)}")
+    # Constants: LUT inputs must be tieable to VCC (needed when a LUT6 is split into two LUT5s).
+    vcc = {n for (x, y), t in g.tile_at.items() for i, w in enumerate(g.tt[t["type"]]["wires"])
+           if w.get("const_value") == "VCC" for n in [g.node((x, y, i))]}
+    a6 = pin(fx, fy, "SLICE[1].A6LUT", "A6")
+    check(any(g.reachable(v, [a6]) is not None for v in list(vcc)[:200]), "a VCC wire reaches LUT A6")
+
+    # Graph hygiene: pins that can never carry a signal.
+    in_nodes = collections.defaultdict(list)
+    out_nodes = collections.defaultdict(list)
+    for x, y, b in g.bels():
+        for p in b["pins"]:
+            n = g.pin_node(x, y, b, p["name"])
+            (in_nodes if p["dir"] != "OUT" else out_nodes)[n].append((b["type"], p["name"]))
+    undriven = collections.Counter(t for n, v in in_nodes.items()
+                                   if n not in g.has_uphill and n not in out_nodes for t in v)
+    # Only the first CARRY4 of each chain has nothing feeding CI.
+    check(set(undriven) <= {("CARRY4", "CI")}, f"undriven bel inputs are only chain-bottom CARRY4.CI: {dict(undriven)}")
+    unloaded = collections.Counter(t for n, v in out_nodes.items()
+                                   if n not in g.has_downhill and n not in in_nodes for t in v)
+    # Clock-pad and feedback outputs only connect on clock-capable pads; PLL TEST_CLKIN only fed test wiring.
+    clock_only = {("IOB", "GCLK_I"), ("ILOGIC", "DFB"), ("ILOGIC", "CFB0"), ("ILOGIC", "CFB1"),
+                  ("IODELAY", "DQSOUTP"), ("IODELAY", "DQSOUTN"),
+                  ("PLL", "TEST_CLKIN")}  # only fed factory-test wiring, which the exporter drops
+    check(set(unloaded) <= clock_only, f"unloaded bel outputs are only clock-pad paths: {dict(unloaded)}")
 
     print(f"\n{failures} failure(s)")
     sys.exit(1 if failures else 0)
