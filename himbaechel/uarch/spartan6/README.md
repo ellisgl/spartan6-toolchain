@@ -9,7 +9,7 @@ Spartan-6 database.
 - **Devices:** xc6slx9 only (`--device xc6slx9-2tqg144`).
 - **Supported:** most of what `synth_xilinx -family xc6s` emits by default:
   LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), CARRY4, MUXF7/MUXF8,
-  RAMB16BWER/RAMB8BWER, DSP48A1, RAM64X1S, RAM32M, RAM64M, SRLC32E, SRL16E, I/O
+  RAMB16BWER/RAMB8BWER, DSP48A1, RAM64X1S, RAM32M, RAM64M, RAM128X1S, SRLC32E, SRL16E, I/O
   (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25, PULLUP/PULLDOWN, DRIVE,
   SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180) and
   PLL_BASE/PLL_ADV (COMPENSATION INTERNAL), falling-edge FFs/RAM/SRLs

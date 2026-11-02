@@ -418,11 +418,26 @@ bool Spartan6Impl::slice_bypass_ok(int x, int y, int base, bool explain_invalid)
             if (const NetInfo *sel = wide[letter]->getPort(id_S))
                 need(sel);
         }
-        // RAM/SRL data in (DI1) through the bypass pin.
+        // RAM/SRL data in (DI1) through the bypass pin. The C LUT can instead
+        // take the D LUT's data (DX, CDI1MUX = DX), which RAM128X1S uses.
         const CellInfo *lr = cell_at(x, y, zl + s6z::LUT6);
         if (lr && lr->type == id_SLICE_LUTRAM)
-            if (const NetInfo *di = lr->getPort(id_DI1))
-                need(di);
+            if (const NetInfo *di = lr->getPort(id_DI1)) {
+                const CellInfo *dlut = cell_at(x, y, base + 3 * 8 + s6z::LUT6);
+                bool via_dx = letter == 2 && dlut && dlut->type == id_SLICE_LUTRAM && dlut->getPort(id_DI1) == di;
+                if (!via_dx)
+                    need(di);
+            }
+        // 7th / 8th write address bit: CX / BX, shared by the slice's RAM LUTs.
+        if (letter == 1 || letter == 2) {
+            IdString wa = letter == 2 ? id_WA7 : id_WA8;
+            for (int l2 = 0; l2 < 4; l2++) {
+                const CellInfo *r = cell_at(x, y, base + l2 * 8 + s6z::LUT6);
+                if (r && r->type == id_SLICE_LUTRAM)
+                    if (const NetInfo *n = r->getPort(wa))
+                        need(n);
+            }
+        }
         if (carry) {
             const NetInfo *di = carry->getPort(di_ports[letter]);
             if (di && !from(di, zl + s6z::LUT5))

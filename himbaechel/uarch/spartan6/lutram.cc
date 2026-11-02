@@ -36,6 +36,9 @@ NEXTPNR_NAMESPACE_BEGIN
 //             write address). RAMMODE RAM64.
 //   RAM32M:   the whole slice; per letter bit 0 is the DI1 -> O5 half and
 //             bit 1 the DI2 -> O6 half (A6 tied high). RAMMODE RAM32.
+//   RAM128X1S: D LUT (lower 64) and C LUT (upper 64), both written from DX
+//             (C through CDI1MUX = DX), A6 on CX (WA7 and the F7BMUX select),
+//             read through F7BMUX (out on CMUX), as ISE's map does.
 //   RAM64M:   the whole slice; per letter one 64-deep bit, DI1 -> O6.
 //             RAMMODE RAM64. (Both: letter x reads at ADDRx, all write at
 //             ADDRD, which is also the D LUT's read address.)
@@ -79,17 +82,19 @@ std::string init_bits(const CellInfo *ci, IdString p, int n)
 void Spartan6Impl::pack_lutram()
 {
     NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
-    int n64 = 0, n32m = 0, n64m = 0, nsrl = 0;
-    std::vector<CellInfo *> ram64, ram32m, srl;
+    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0;
+    std::vector<CellInfo *> ram64, ram32m, ram128, srl;
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
         if (ci->type == id_RAM64X1S)
             ram64.push_back(ci);
         else if (ci->type.in(id_RAM32M, id_RAM64M))
             ram32m.push_back(ci);
+        else if (ci->type == id_RAM128X1S)
+            ram128.push_back(ci);
         else if (ci->type.in(id_SRLC32E, id_SRL16E))
             srl.push_back(ci);
-        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D, id_RAM64X1D, id_RAM128X1S, id_RAM128X1D))
+        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D, id_RAM64X1D, id_RAM128X1D))
             log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
     }
 
@@ -240,6 +245,72 @@ void Spartan6Impl::pack_lutram()
         (deep ? n64m : n32m)++;
     }
 
+    // RAM128X1S: two RAM64 LUTs (D low, C high) and the F7BMUX, one cluster.
+    for (CellInfo *ci : ram128) {
+        bool inv = clk_inv(ci, id_IS_WCLK_INVERTED);
+        static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+        static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+        std::vector<NetInfo *> addr;
+        for (int i = 0; i < 7; i++)
+            addr.push_back(ci->getPort(ctx->idf("A%d", i)));
+        NetInfo *d = ci->getPort(id_D), *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
+        std::string init = init_bits(ci, id_INIT, 128); // MSB first
+        CellInfo *root = nullptr;
+        NetInfo *half[2];
+        for (int h = 0; h < 2; h++) { // 0: low half (D LUT), 1: high half (C LUT)
+            int letter = h ? 2 : 3;
+            CellInfo *lut = ctx->createCell(ctx->idf("%s$%s", ci->name.c_str(ctx), h ? "HIGH" : "LOW"), id_SLICE_LUTRAM);
+            for (int i = 0; i < 6; i++) {
+                add_in(lut, la[i], addr[i]);
+                add_in(lut, wa[i], addr[i]);
+            }
+            add_in(lut, id_WA7, addr[6]);
+            add_in(lut, id_DI1, d);
+            add_in(lut, id_WE, we);
+            add_in(lut, id_CLK, wclk);
+            if (inv)
+                lut->params[id_CLK_INV] = Property(1, 1);
+            half[h] = ctx->createNet(ctx->idf("%s$%s_O", ci->name.c_str(ctx), h ? "HIGH" : "LOW"));
+            lut->addOutput(id_O);
+            lut->connectPort(id_O, half[h]);
+            lut->params[id_INIT] = Property::from_string(h ? init.substr(0, 64) : init.substr(64, 64));
+            lut->params[id_RAM_MODE] = std::string("RAM64");
+            lut->constr_abs_z = true;
+            lut->constr_z = lut6_z(letter);
+            if (!root) {
+                root = lut;
+                lut->cluster = lut->name;
+            } else {
+                lut->cluster = root->name;
+                root->constr_children.push_back(lut);
+                lut->constr_x = 0;
+                lut->constr_y = 0;
+            }
+        }
+        CellInfo *mux = ctx->createCell(ctx->idf("%s$F7", ci->name.c_str(ctx)), id_SLICE_F7MUX);
+        add_in(mux, id_I0, half[0]);
+        add_in(mux, id_I1, half[1]);
+        add_in(mux, id_S, addr[6]);
+        mux->addOutput(id_O);
+        if (NetInfo *o = ci->getPort(id_O)) {
+            ci->disconnectPort(id_O);
+            mux->connectPort(id_O, o);
+        }
+        mux->cluster = root->name;
+        root->constr_children.push_back(mux);
+        mux->constr_x = 0;
+        mux->constr_y = 0;
+        mux->constr_abs_z = true;
+        mux->constr_z = Z_SLICEM + s6z::F7BMUX;
+        std::vector<IdString> ports;
+        for (auto &p : ci->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            ci->disconnectPort(p);
+        ctx->cells.erase(ci->name);
+        n128++;
+    }
+
     // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
     for (CellInfo *ci : srl) {
         bool srl16 = ci->type == id_SRL16E;
@@ -354,8 +425,9 @@ void Spartan6Impl::pack_lutram()
     }
     if (ngnd)
         log_info("%d constant-0 RAM/SRL address or undriven data pins driven from a LUT.\n", ngnd);
-    if (n64 || n32m || n64m || nsrl)
-        log_info("Packed %d RAM64X1S, %d RAM32M, %d RAM64M and %d SRLs into SLICEM LUTs.\n", n64, n32m, n64m, nsrl);
+    if (n64 || n32m || n64m || n128 || nsrl)
+        log_info("Packed %d RAM64X1S, %d RAM32M, %d RAM64M, %d RAM128X1S and %d SRLs into SLICEM LUTs.\n", n64, n32m,
+                 n64m, n128, nsrl);
 }
 
 NEXTPNR_NAMESPACE_END
