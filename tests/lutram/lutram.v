@@ -7,6 +7,8 @@
 //                    previous R's address, separately from where W writes:
 //                    RAM64M; mb is 128 deep: RAM128X1S)
 //   'S' data      -> 1 byte: the byte shifted in 24 'S' commands ago
+//   'L' data      -> 1 byte: the byte shifted in 70 'L' commands ago (a long
+//                    shift register: SRLC32Es chained through Q31)
 //   'P'           -> 1 byte: bit 15 of a 16-bit register initialised to
 //                    16'hA5C3, which then rotates left by one (an SRL with a
 //                    non-zero initial value)
@@ -34,6 +36,7 @@ module lutram (
     reg [7:0] m64 [0:63];
     reg [7:0] m32 [0:31];
     reg [7:0] sr  [0:23];
+    reg [7:0] lsr [0:69];
     reg [7:0] md  [0:63];
     reg [1:0] mb  [0:127];
     integer k;
@@ -63,6 +66,13 @@ module lutram (
         end
     end
     integer i;
+    reg lshift = 0;
+    always @(posedge clk)
+        if (lshift) begin
+            lsr[0] <= data;
+            for (i = 1; i < 70; i = i + 1)
+                lsr[i] <= lsr[i-1];
+        end
     always @(posedge clk)
         if (shift) begin
             sr[0] <= data;
@@ -72,6 +82,7 @@ module lutram (
     wire [7:0] q64 = m64[addr[5:0]];
     wire [7:0] q32 = m32[addr[4:0]];
     wire [7:0] qsr = sr[23];
+    wire [7:0] qlsr = lsr[69];
     reg  [5:0] raddr = 0;
     wire [7:0] qd  = md[raddr];
     wire [1:0] qb  = mb[addr[6:0]];
@@ -86,6 +97,7 @@ module lutram (
     always @(posedge clk) begin
         we    <= 1'b0;
         shift <= 1'b0;
+        lshift <= 1'b0;
         rot   <= 1'b0;
         if (rx_valid && phase == 0) begin
             if (ncmd == 0)
@@ -102,15 +114,18 @@ module lutram (
                 addr <= cmd[15:8]; phase <= 1; ncmd <= 0;
             end else if (op == "S" && ncmd == 2) begin
                 data <= cmd[15:8]; phase <= 2; ncmd <= 0;
+            end else if (op == "L" && ncmd == 2) begin
+                data <= cmd[15:8]; phase <= 3; ncmd <= 0;
             end else if (op == "P") begin
                 out <= {24'h00, 7'h00, pat[15]}; nout <= 1; rot <= 1'b1; ncmd <= 0;
-            end else if (op != "W" && op != "R" && op != "S") begin
+            end else if (op != "W" && op != "R" && op != "S" && op != "L") begin
                 ncmd <= 0;
             end
         end
         case (phase)
             1: begin out <= {6'h00, qb, qd, q32, q64}; nout <= 4; raddr <= addr[5:0]; phase <= 0; end
             2: begin out <= {24'h00, qsr}; nout <= 1; shift <= 1'b1; phase <= 0; end
+            3: begin out <= {24'h00, qlsr}; nout <= 1; lshift <= 1'b1; phase <= 0; end
             default: ;
         endcase
         if (tx_taken) begin

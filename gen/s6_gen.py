@@ -44,7 +44,13 @@ def main():
             tt.create_wire(w["name"], w["kind"], w.get("const_value", ""))
         for p in tt_json["pips"]:
             # Delay class: the class of the driven wire, or the slice mux.
-            tt.create_pip(names[p["src"]], names[p["dst"]], p["timing_class"])
+            pip = tt.create_pip(names[p["src"]], names[p["dst"]], p["timing_class"])
+            # Flag 1: the C LUT's DI1 from DX (MUX_CDI1 = ALT, not the MC31
+            # cascade). ISE allows it only for RAM (RAM128X1S), not SRLs; the
+            # uarch checks.
+            ref = p.get("src_ref", [])
+            if p["kind"] == "SITE" and ref[2:4] == ["MUX_CDI1", "ALT"] and "MC31" not in names[p["src"]]:
+                pip.flags = 1
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])
             # Slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM (read by the uarch).

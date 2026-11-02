@@ -27,6 +27,7 @@ def main():
     sr = [(53 * i + 7) & 0xFF for i in range(24)]
     md = [(29 * i + 3) & 0xFF for i in range(64)]
     mb = [(7 * i + 1) & 3 for i in range(128)]
+    lsr = [None] * 70  # unknown until shifted in
     raddr = [0]
     pat = 0xA5C3
     bad = 0
@@ -77,7 +78,7 @@ def main():
             sys.exit(1)
         print("initial RAM and shift register contents correct")
         for op in range(args.ops):
-            kind = random.choice("WRSP")
+            kind = random.choice("WRSPL")
             n += 1
             if kind == "W":
                 write(random.getrandbits(8), random.getrandbits(8))
@@ -97,6 +98,19 @@ def main():
                     bad += 1
                     if bad <= 8:
                         print(f"  P: got {got.hex()} want {want.hex()}")
+            elif kind == "L":
+                d = random.getrandbits(8)
+                port.write(bytes([ord("L"), d]))
+                got = port.read(1)
+                want = lsr[-1]
+                lsr = [d] + lsr[:-1]
+                if not got:
+                    print("FAIL: no reply to L")
+                    sys.exit(1)
+                if want is not None and got != bytes([want]):
+                    bad += 1
+                    if bad <= 8:
+                        print(f"  L: got {got.hex()} want {want:02x}")
             else:
                 d = random.getrandbits(8)
                 port.write(bytes([ord("S"), d]))
