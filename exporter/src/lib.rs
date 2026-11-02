@@ -2,6 +2,9 @@
 //! writer (s6-xdl). The XDL writer has to map nextpnr wire names back to
 //! prjcombine wires, so both must use exactly these rules.
 
+pub mod chipdb;
+pub mod nextpnr;
+
 use prjcombine_entity::bundle_map::EntityBundleItemIndex;
 use prjcombine_interconnect::db::{IntDb, TileClass, TileWireCoord};
 use prjcombine_interconnect::grid::{CellCoord, ExpandedGrid, WireCoord};

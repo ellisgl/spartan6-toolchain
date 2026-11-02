@@ -1050,6 +1050,7 @@ dependencies = [
  "prjcombine-re-xilinx-rawdump",
  "prjcombine-re-xilinx-xdl",
  "prjcombine-spartan6",
+ "prjcombine-types",
  "serde",
  "serde_json",
 ]

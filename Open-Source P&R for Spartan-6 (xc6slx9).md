@@ -60,6 +60,8 @@ This is where the Spartan-6-specific logic lives:
 
 ### 7. Bitstream writer
 
+> **Status (Nov 1):** working (`s6-bitgen`). Its output is byte-identical to ISE's bitgen for blinky, cylon and uart_echo, using prjcombine's bit database, the bitstream module's frame layout and our own packet writer. ISE is no longer needed to build bitstreams. A UART echo design built entirely with the open flow passes an automatic hardware test on the Mojo V3.
+
 - Take the routed design, set the config bits from the prjcombine bitstream database, and lay them out into frames.
 - Also handle the defaults for unused tiles and IOBs (pulls, tristates), GSR, FF INIT values, and STARTUP\_SPARTAN6 settings, then the header, packets, and CRC.
 - Spartan-6 uses 16-bit config words, unlike the 32-bit words of xc7.
@@ -97,8 +99,8 @@ This path needs ISE installed, which is the same cost as the *Containerize ISE* 
 
 | Milestone | Scope | Rough effort (one person, familiar with nextpnr) |
 | --- | --- | --- |
-| Blinky | LUT/FF in SLICEX, plain IOB, IBUFG → BUFIO2 → BUFG, via the XDL path | 1–2 months |
-| Own bitgen | Matches ISE bitgen on test designs | +1–2 months |
+| Blinky | LUT/FF in SLICEX, plain IOB, IBUFG → BUFIO2 → BUFG, via the XDL path (**done Nov 1**) | 1–2 months |
+| Own bitgen | Matches ISE bitgen on test designs (**done Nov 1**) | +1–2 months |
 | Useful | Carry, F7/F8, SLICEM RAM/SRL, BRAM, DCM/PLL | months |
 | Parity-ish | DSP48A1, SERDES/IODELAY, BUFPLL, timing-driven | much longer |
 

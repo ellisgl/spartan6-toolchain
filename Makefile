@@ -109,19 +109,20 @@ $(S6XDL): $(EXPORTER)
 
 # --- test designs ------------------------------------------------------------
 #
-#   make pnr  TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
-#   make bit  TEST=cylon   # + XDL, ISE par/drc/bitgen -> build/cylon/cylon.bin
-#   make load TEST=cylon   # + load into the Mojo's FPGA RAM
+#   make pnr       TEST=cylon  # yosys + nextpnr               -> build/cylon/routed.json
+#   make bit       TEST=cylon  # + s6-bitgen (no ISE)          -> build/cylon/design.bin
+#   make load      TEST=cylon  # + load into the Mojo's FPGA RAM
+#   make ise-check TEST=cylon  # ISE cross-check: s6-xdl -> xdl2ncd -> drc -> bitgen,
+#                              # which must give a byte-identical bitstream
 #
-# tests/<name>/*.v with top module <name>, pins from tests/mojo_v3.ucf.
-# XDL_MODE=routed (default): our packing, placement and routing; ISE only
-#   converts, checks (drc) and runs bitgen.
-# XDL_MODE=pins: our packing and placement; ISE's par routes.
-
-XDL_MODE ?= routed
+# tests/<name>/*.v with top module <name>; pins from tests/<name>/pins.ucf if
+# present, else tests/mojo_v3.ucf.
+# XDL_MODE=routed (default) checks our routing; XDL_MODE=pins lets ISE route.
 
 TEST ?= blinky
 T    := $(BUILD)/$(TEST)
+S6BITGEN := $(BUILD)/target/release/s6-bitgen
+XDL_MODE ?= routed
 
 # Keep intermediate files (synth.json, design.xdl) for inspection.
 .SECONDARY:
@@ -130,9 +131,18 @@ $(BUILD)/%/synth.json: $$(wildcard tests/$$*/*.v)
 	@mkdir -p $(dir $@)
 	$(YOSYS) -q -l $(dir $@)yosys.log -p "synth_xilinx -family xc6s -top $* $(SYNTH_FLAGS) -json $@" $^
 
-$(BUILD)/%/routed.json: $(BUILD)/%/synth.json tests/mojo_v3.ucf $(CHIPDB) $(NPNR_BIN)
+ucf_for = $(if $(wildcard tests/$(1)/pins.ucf),tests/$(1)/pins.ucf,tests/mojo_v3.ucf)
+
+$(BUILD)/%/routed.json: $(BUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $(NPNR_BIN)
 	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
-		-o ucf=tests/mojo_v3.ucf --write $@ --log $(dir $@)nextpnr.log
+		-o ucf=$(call ucf_for,$*) --write $@ --log $(dir $@)nextpnr.log
+
+$(S6BITGEN): $(EXPORTER)
+
+$(BUILD)/%/design.bin: $(BUILD)/%/routed.json $(S6BITGEN) $(DB) $(BUILD)/$(DEVICE).json
+	$(S6BITGEN) --db $(DB) gen --routed $< --chipdb-json $(BUILD)/$(DEVICE).json --out $@
+
+# --- ISE cross-check ---------------------------------------------------------
 
 XDL_ARGS_routed := --rawdump $(RAWDUMP) --chipdb-json $(BUILD)/$(DEVICE).json
 XDL_ARGS_pins   := --pins-only
@@ -141,7 +151,7 @@ $(BUILD)/%/design.xdl: $(BUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB) $(RAWDUMP) 
 	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --package $(PACKAGE) --out $@
 
 # ISE: XDL -> NCD, (route with par in pins mode), DRC, bitstream.
-$(BUILD)/%/design.bin: $(BUILD)/%/design.xdl
+$(BUILD)/%/ise.bin: $(BUILD)/%/design.xdl
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) xdl -xdl2ncd -force design.xdl design.ncd > xdl2ncd.log
 	if grep -q '^ERROR' $(dir $@)xdl2ncd.log; then grep '^ERROR' $(dir $@)xdl2ncd.log; exit 1; fi
 ifeq ($(XDL_MODE),pins)
@@ -152,18 +162,21 @@ endif
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) drc design_routed.ncd > drc.log
 	grep -q '<0> errors' $(dir $@)drc.log || { grep ERROR $(dir $@)drc.log; exit 1; }
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) bitgen -w -g Binary:Yes -g UnusedPin:Pullnone \
-		design_routed.ncd design.bit > bitgen.log
+		design_routed.ncd ise.bit > bitgen.log
 
 pnr:  $(T)/routed.json
 bit:  $(T)/design.bin
 load: $(T)/design.bin
 	$(PYTHON) -I tools/mojo-load.py $<
+ise-check: $(T)/design.bin $(T)/ise.bin
+	$(S6BITGEN) --db $(DB) diff $(T)/ise.bin $(T)/design.bin | tail -1
+	cmp $(T)/ise.bin $(T)/design.bin && echo "$(TEST): s6-bitgen output is identical to ISE bitgen"
 
 # Old name for the first milestone.
 blinky:
 	$(MAKE) pnr TEST=blinky
 
 clean:
-	rm -rf $(BUILD)/*.json $(BUILD)/*.bba $(BUILD)/*.bin $(BUILD)/blinky $(BUILD)/cylon
+	rm -rf $(BUILD)/*.json $(BUILD)/*.bba $(BUILD)/*.bin $(BUILD)/blinky $(BUILD)/cylon $(BUILD)/uart_echo
 
-.PHONY: all check pnr bit load blinky clean
+.PHONY: all check pnr bit load ise-check blinky clean

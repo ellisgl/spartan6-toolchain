@@ -10,6 +10,7 @@ license = "0BSD OR Apache-2.0"
 [dependencies]
 prjcombine-spartan6 = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-interconnect = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-types = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-entity = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485", features = ["map"] }
 # For s6-rawdump (dumping ISE's view of the device; needs ISE via tools/ise-bin).
 prjcombine-re-toolchain = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }

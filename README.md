@@ -17,7 +17,12 @@ nextpnr himbaechel uarch built on prjcombine. The plan is in
   not used. Converting ISE's result back to XDL gives back exactly our pips.
   Cylon and Blinky with our own routing run correctly on the Mojo V3.
   `XDL_MODE=pins` writes pins only and lets ISE route instead (stage 1).
-- **Bitstream writer (§7):** not started; ISE's `bitgen` is used for now.
+- **Bitstream writer (§7):** working. `s6-bitgen` generates the bitstream
+  from nextpnr's routed design using prjcombine's bit database. Its output is
+  byte-identical to ISE's bitgen for blinky, cylon and uart_echo. The
+  default flow (`make bit`) uses no ISE at all. `tests/uart_echo`, built this
+  way, passes an automatic hardware test over the Mojo's USB serial port
+  (`tools/uart-test.py`).
 
 ## Pipeline
 
@@ -36,14 +41,18 @@ prjcombine spartan6.zstd ──s6-export (Rust)──▶ xc6slx9.json ──s6_g
 ```
 make                    # build/chipdb-xc6slx9.bin and build/nextpnr-build/nextpnr-himbaechel
 make check              # chip database sanity checks
-make pnr  TEST=cylon    # yosys + nextpnr                 -> build/cylon/routed.json
-make bit  TEST=cylon    # + s6-xdl + ISE xdl2ncd/drc/bitgen -> build/cylon/design.bin
-make load TEST=cylon    # + load into the Mojo's FPGA RAM
+make pnr       TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
+make bit       TEST=cylon   # + s6-bitgen (no ISE)   -> build/cylon/design.bin
+make load      TEST=cylon   # + load into the Mojo's FPGA RAM
+make ise-check TEST=cylon   # ISE cross-check: XDL -> drc -> bitgen, must be byte-identical
+tools/uart-test.py          # hardware check for TEST=uart_echo (after make load)
 ```
 
-`make bit` needs ISE (see below). The first run also dumps ISE's view of the
-device and builds prjcombine's naming database (`build/xc6slx9-geom.zstd`,
-about 2 minutes).
+Only `make ise-check` needs ISE (see below). Its first run also dumps ISE's
+view of the device and builds prjcombine's naming database
+(`build/xc6slx9-geom.zstd`, about 2 minutes). Test designs live in
+`tests/<name>/`, with pins from `tests/<name>/pins.ucf` or
+`tests/mojo_v3.ucf`.
 
 `make` clones nextpnr at a pinned revision into `build/nextpnr`, links
 `uarch/spartan6` into its source tree, and adds `spartan6` to himbaechel's
@@ -91,6 +100,34 @@ tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
 
 `mojo-load.py` speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
+
+## Bitstream writer (`exporter/src/bin/s6-bitgen/`)
+
+- **`write.rs`:** serializes a prjcombine `Bitstream` into ISE's exact
+  packet sequence (registers, one FDRI with all-ones padding frames,
+  startup), with the 22-bit CRC. `s6-bitgen roundtrip` parses an ISE `.bin`
+  and writes it back byte-identical.
+- **`config.rs`:** turns the routed design into frame contents.
+  - **Pips:** routed pips set their switchbox bits.
+  - **Slices:** LUT INIT, FF settings and slice muxes become bel attributes.
+  - **IOBs:** drive and slew come from prjcombine's `IOB_DATA` table.
+    `NDRIVE` uses the 2.5 V VCCAUX column, as ISE does.
+  - **I/O logic:** ILOGIC and OLOGIC get their pass-through settings.
+  - **Fixed values:** bitgen's register defaults, plus 5 always-set analog
+    trim bits from ISE's empty-design output.
+  - **SLICEX defaults:** a used SLICEX gets ISE's "unused" mux encodings.
+- **`explain.rs`:** maps any bit back to its tile and prjcombine setting.
+
+Commands:
+
+- **`s6-bitgen gen --compare ise.bin`:** generates a bitstream and lists
+  every differing bit with its meaning.
+- **`s6-bitgen bits`:** lists a bitstream's set bits.
+
+Supported so far: LUT6s, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs and outputs
+(no tristate), BUFG and global clock routing. Only LVTTL has been verified
+against ISE. Not supported yet: everything the packer doesn't support, plus
+`.bit` file headers and bitgen options other than the defaults.
 
 ## XDL output (`exporter/src/bin/s6-xdl/`)
 
@@ -220,8 +257,8 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **Own bitstream writer (§7):** replace ISE's `bitgen`, then compare its
-  output with ISE's bit for bit on the same NCD.
+- **Tristate outputs:** needed to tristate `avr_rx` (and the SPI lines) until
+  the Mojo's AVR is ready, as the Mojo base project does.
 - **Excluded ISE arcs:** the chipdb still contains arcs ISE marks as excluded
   (e.g. GND -> SR). The rawdump has the flags; the exporter could drop them.
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
