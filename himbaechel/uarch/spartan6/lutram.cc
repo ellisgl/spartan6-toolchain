@@ -36,6 +36,9 @@ NEXTPNR_NAMESPACE_BEGIN
 //             write address). RAMMODE RAM64.
 //   RAM32M:   the whole slice; per letter bit 0 is the DI1 -> O5 half and
 //             bit 1 the DI2 -> O6 half (A6 tied high). RAMMODE RAM32.
+//   RAM64M:   the whole slice; per letter one 64-deep bit, DI1 -> O6.
+//             RAMMODE RAM64. (Both: letter x reads at ADDRx, all write at
+//             ADDRD, which is also the D LUT's read address.)
 //   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
 //             CE on WE. RAMMODE SRL32. Cascades (Q31) are not supported yet.
 //   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
@@ -74,17 +77,17 @@ std::string init_bits(const CellInfo *ci, IdString p, int n)
 void Spartan6Impl::pack_lutram()
 {
     NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
-    int n64 = 0, n32m = 0, nsrl = 0;
+    int n64 = 0, n32m = 0, n64m = 0, nsrl = 0;
     std::vector<CellInfo *> ram64, ram32m, srl;
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
         if (ci->type == id_RAM64X1S)
             ram64.push_back(ci);
-        else if (ci->type == id_RAM32M)
+        else if (ci->type.in(id_RAM32M, id_RAM64M))
             ram32m.push_back(ci);
         else if (ci->type.in(id_SRLC32E, id_SRL16E))
             srl.push_back(ci);
-        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D, id_RAM64X1D, id_RAM128X1S, id_RAM128X1D, id_RAM64M))
+        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D, id_RAM64X1D, id_RAM128X1S, id_RAM128X1D))
             log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
     }
 
@@ -148,13 +151,15 @@ void Spartan6Impl::pack_lutram()
         }
     }
 
-    // RAM32M: four new LUT cells (D first), then the original goes.
+    // RAM32M / RAM64M: four new LUT cells (D first), then the original goes.
     for (CellInfo *ci : ram32m) {
+        bool deep = ci->type == id_RAM64M;
+        int abits = deep ? 6 : 5;
         if (ci->params.count(id_IS_WCLK_INVERTED) && ci->params.at(id_IS_WCLK_INVERTED).as_int64() != 0)
-            log_error("RAM32M %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
+            log_error("%s %s: inverted clock is not supported yet\n", ci->type.c_str(ctx), ctx->nameOf(ci));
         NetInfo *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
         std::vector<NetInfo *> waddr;
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < abits; i++)
             waddr.push_back(ci->getPort(ctx->idf("ADDRD[%d]", i)));
         static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
         static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
@@ -162,35 +167,48 @@ void Spartan6Impl::pack_lutram()
         for (int letter = 3; letter >= 0; letter--) {
             char x = "ABCD"[letter];
             CellInfo *lut = ctx->createCell(ctx->idf("%s$%c", ci->name.c_str(ctx), x), id_SLICE_LUTRAM);
-            for (int i = 0; i < 5; i++) {
+            for (int i = 0; i < abits; i++) {
                 add_in(lut, la[i], ci->getPort(ctx->idf("ADDR%c[%d]", x, i)));
                 add_in(lut, wa[i], waddr[i]);
             }
-            add_in(lut, id_A6, vcc);
-            add_in(lut, id_WA6, vcc);
-            add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c[0]", x)));
-            add_in(lut, id_DI2, ci->getPort(ctx->idf("DI%c[1]", x)));
             add_in(lut, id_WE, we);
             add_in(lut, id_CLK, wclk);
-            for (auto &o : {std::make_pair(0, id_O5), std::make_pair(1, id_O)}) {
-                IdString from = ctx->idf("DO%c[%d]", x, o.first);
+            if (deep) {
+                add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c", x)));
+                IdString from = ctx->idf("DO%c", x);
                 NetInfo *n = ci->getPort(from);
-                lut->addOutput(o.second);
+                lut->addOutput(id_O);
                 if (n) {
                     ci->disconnectPort(from);
-                    lut->connectPort(o.second, n);
+                    lut->connectPort(id_O, n);
                 }
+                lut->params[id_INIT] = Property::from_string(init_bits(ci, ctx->idf("INIT_%c", x), 64));
+                lut->params[id_RAM_MODE] = std::string("RAM64");
+            } else {
+                add_in(lut, id_A6, vcc);
+                add_in(lut, id_WA6, vcc);
+                add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c[0]", x)));
+                add_in(lut, id_DI2, ci->getPort(ctx->idf("DI%c[1]", x)));
+                for (auto &o : {std::make_pair(0, id_O5), std::make_pair(1, id_O)}) {
+                    IdString from = ctx->idf("DO%c[%d]", x, o.first);
+                    NetInfo *n = ci->getPort(from);
+                    lut->addOutput(o.second);
+                    if (n) {
+                        ci->disconnectPort(from);
+                        lut->connectPort(o.second, n);
+                    }
+                }
+                // INIT_x interleaves the halves: bit 2i -> O5 (lower half of the
+                // LUT table), bit 2i+1 -> O6 (upper half).
+                std::string init = init_bits(ci, ctx->idf("INIT_%c", x), 64); // MSB first
+                std::string lut_init(64, '0');
+                for (int i = 0; i < 32; i++) {
+                    lut_init[63 - i] = init[63 - 2 * i];
+                    lut_init[63 - (32 + i)] = init[63 - (2 * i + 1)];
+                }
+                lut->params[id_INIT] = Property::from_string(lut_init);
+                lut->params[id_RAM_MODE] = std::string("RAM32");
             }
-            // INIT_x interleaves the halves: bit 2i -> O5 (lower half of the
-            // LUT table), bit 2i+1 -> O6 (upper half).
-            std::string init = init_bits(ci, ctx->idf("INIT_%c", x), 64); // MSB first
-            std::string lut_init(64, '0');
-            for (int i = 0; i < 32; i++) {
-                lut_init[63 - i] = init[63 - 2 * i];
-                lut_init[63 - (32 + i)] = init[63 - (2 * i + 1)];
-            }
-            lut->params[id_INIT] = Property::from_string(lut_init);
-            lut->params[id_RAM_MODE] = std::string("RAM32");
             if (!root) {
                 root = lut;
                 lut->cluster = lut->name;
@@ -211,7 +229,7 @@ void Spartan6Impl::pack_lutram()
         for (IdString p : ports)
             ci->disconnectPort(p);
         ctx->cells.erase(ci->name);
-        n32m++;
+        (deep ? n64m : n32m)++;
     }
 
     // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
@@ -271,8 +289,66 @@ void Spartan6Impl::pack_lutram()
         to_lutram(ci, "SRL32");
         nsrl++;
     }
-    if (n64 || n32m || nsrl)
-        log_info("Packed %d RAM64X1S, %d RAM32M and %d SRLs into SLICEM LUTs.\n", n64, n32m, nsrl);
+    // LUT address pins can be tied high (TIE_1) but some can't reach ground,
+    // and a RAM / SRL address can't be folded into the table the way a
+    // logic LUT's can. Constant-0 address bits (an SRL's fixed tap, say)
+    // come from one shared LUT whose output is 0.
+    NetInfo *lut_gnd = nullptr;
+    int ngnd = 0;
+    static const IdString addr_ports[] = {id_A1,  id_A2,  id_A3,  id_A4,  id_A5,  id_A6,
+                                          id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+    std::vector<CellInfo *> lutram_cells;
+    for (auto &cell : ctx->cells)
+        if (cell.second->type == id_SLICE_LUTRAM)
+            lutram_cells.push_back(cell.second.get());
+    for (CellInfo *ci : lutram_cells)
+        for (IdString p : addr_ports) {
+            NetInfo *n = ci->getPort(p);
+            if (!n || n->constant_value != id_GND)
+                continue;
+            if (!lut_gnd) {
+                lut_gnd = ctx->createNet(ctx->id("$lutram_gnd"));
+                CellInfo *drv = ctx->createCell(ctx->id("$lutram_gnd_lut"), id_LUT1);
+                drv->params[id_INIT] = Property(0, 2);
+                drv->addOutput(id_O);
+                drv->connectPort(id_O, lut_gnd);
+            }
+            ci->disconnectPort(p);
+            ci->connectPort(p, lut_gnd);
+            ngnd++;
+        }
+    // ISE requires a RAM / SRL LUT's data input to be connected; yosys can
+    // leave one undriven (an unused bit of a RAM64M, say).
+    for (CellInfo *ci : lutram_cells) {
+        const std::string &mode = ci->params.at(id_RAM_MODE).as_string();
+        std::vector<IdString> di;
+        if (mode == "RAM64" || mode == "SRL32")
+            di = {id_DI1};
+        else if (mode == "RAM32")
+            di = {id_DI1, id_DI2};
+        else
+            di = {id_DI2};
+        for (IdString p : di) {
+            NetInfo *n = ci->getPort(p);
+            if (n && n->driver.cell)
+                continue;
+            if (!lut_gnd) {
+                lut_gnd = ctx->createNet(ctx->id("$lutram_gnd"));
+                CellInfo *drv = ctx->createCell(ctx->id("$lutram_gnd_lut"), id_LUT1);
+                drv->params[id_INIT] = Property(0, 2);
+                drv->addOutput(id_O);
+                drv->connectPort(id_O, lut_gnd);
+            }
+            if (n)
+                ci->disconnectPort(p);
+            add_in(ci, p, lut_gnd);
+            ngnd++;
+        }
+    }
+    if (ngnd)
+        log_info("%d constant-0 RAM/SRL address or undriven data pins driven from a LUT.\n", ngnd);
+    if (n64 || n32m || n64m || nsrl)
+        log_info("Packed %d RAM64X1S, %d RAM32M, %d RAM64M and %d SRLs into SLICEM LUTs.\n", n64, n32m, n64m, nsrl);
 }
 
 NEXTPNR_NAMESPACE_END
