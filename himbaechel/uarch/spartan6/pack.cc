@@ -162,6 +162,67 @@ void Spartan6Impl::pack_clocking()
     log_info("Packed %d global buffers.\n", count);
 }
 
+// A LUT1 inverter (or INV) on a FF, RAM or SRL clock becomes the cell's
+// clock inversion (the slice's CLKINV), as ISE's map does: a global clock
+// can't be routed into a LUT input. yosys inverts RAM64M clocks this way.
+void Spartan6Impl::absorb_clock_inverters()
+{
+    struct ClkPin
+    {
+        IdString port, param;
+    };
+    auto clk_pin = [&](const CellInfo *ci) -> ClkPin {
+        if (ci->type.in(id_FDRE, id_FDSE, id_FDCE, id_FDPE) ||
+            ci->type.in(ctx->id("FDRE_1"), ctx->id("FDSE_1"), ctx->id("FDCE_1"), ctx->id("FDPE_1")))
+            return {id_C, id_IS_C_INVERTED};
+        if (ci->type.in(id_RAM64X1S, id_RAM32M, id_RAM64M))
+            return {id_WCLK, id_IS_WCLK_INVERTED};
+        if (ci->type.in(id_SRLC32E, id_SRL16E))
+            return {id_CLK, id_IS_CLK_INVERTED};
+        return {};
+    };
+    auto is_inverter = [&](const CellInfo *drv) {
+        if (drv->type == id_INV)
+            return true;
+        if (drv->type != id_LUT1 || !drv->params.count(id_INIT))
+            return false;
+        return (drv->params.at(id_INIT).as_int64() & 3) == 1;
+    };
+    int n = 0;
+    pool<IdString> unused;
+    std::vector<CellInfo *> cells;
+    for (auto &cell : ctx->cells)
+        cells.push_back(cell.second.get());
+    for (CellInfo *ci : cells) {
+        ClkPin cp = clk_pin(ci);
+        if (cp.port == IdString())
+            continue;
+        NetInfo *clk = ci->getPort(cp.port);
+        if (!clk || !clk->driver.cell || !is_inverter(clk->driver.cell))
+            continue;
+        CellInfo *inv = clk->driver.cell;
+        NetInfo *src = inv->getPort(inv->type == id_INV ? id_I : id_I0);
+        if (!src)
+            continue;
+        ci->disconnectPort(cp.port);
+        ci->connectPort(cp.port, src);
+        bool was = ci->params.count(cp.param) && ci->params.at(cp.param).as_int64() != 0;
+        ci->params[cp.param] = Property(was ? 0 : 1, 1);
+        n++;
+        if (clk->users.entries() == 0)
+            unused.insert(inv->name);
+    }
+    for (IdString name : unused) {
+        CellInfo *inv = ctx->cells.at(name).get();
+        for (IdString p : {id_I, id_I0, id_O})
+            if (inv->ports.count(p))
+                inv->disconnectPort(p);
+        ctx->cells.erase(name);
+    }
+    if (n)
+        log_info("Absorbed %d clock inverters into slice clock inversion.\n", n);
+}
+
 void Spartan6Impl::pack_logic()
 {
     int luts = 0, ffs = 0;
@@ -182,11 +243,23 @@ void Spartan6Impl::pack_logic()
                 rename_if(ci, in_ports[i], a_ports[i]);
             ci->type = id_SLICE_LUT;
             luts++;
-        } else if (ci->type.in(id_FDRE, id_FDSE, id_FDCE, id_FDPE)) {
-            for (auto inv : {id_IS_C_INVERTED})
-                if (ci->params.count(inv) && ci->params.at(inv).as_int64() != 0)
-                    log_error("FF %s: clock inversion is not supported yet\n", ctx->nameOf(ci));
-            ci->params[id_FF_TYPE] = ci->type.str(ctx);
+        } else if (ci->type.in(id_FDRE, id_FDSE, id_FDCE, id_FDPE) ||
+                   ci->type.in(ctx->id("FDRE_1"), ctx->id("FDSE_1"), ctx->id("FDCE_1"), ctx->id("FDPE_1"))) {
+            // FDxE_1 and IS_C_INVERTED: falling edge. The slice inverts its
+            // clock for all its FFs and RAM/SRL LUTs (CLKINV), so it's part
+            // of the control set.
+            std::string type = ci->type.str(ctx);
+            bool inv = false;
+            if (type.size() > 2 && type.substr(type.size() - 2) == "_1") {
+                type = type.substr(0, type.size() - 2);
+                inv = true;
+            }
+            if (ci->params.count(id_IS_C_INVERTED) && ci->params.at(id_IS_C_INVERTED).as_int64() != 0)
+                inv = !inv;
+            ci->params.erase(id_IS_C_INVERTED);
+            if (inv)
+                ci->params[id_CLK_INV] = Property(1, 1);
+            ci->params[id_FF_TYPE] = type;
             rename_if(ci, id_C, id_CK);
             for (auto sr : {id_R, id_S, id_CLR, id_PRE})
                 rename_if(ci, sr, id_SR);

@@ -74,6 +74,9 @@ struct Spartan6Impl : HimbaechelAPI
     TimingPortClass getPortTimingClass(const CellInfo *cell, IdString port, int &clockInfoCount) const override;
     std::vector<uint8_t> lut_used_inputs; // per cell flat index: bit i = A(i+1) matters
     bool lut_input_unused(const CellInfo *cell, IdString port) const;
+    // CLK_INV = 1: the cell's slice clock is inverted (falling edge).
+    bool clk_inverted(const CellInfo *cell) const;
+    void absorb_clock_inverters();
     TimingClockingInfo getPortClockingInfo(const CellInfo *cell, IdString port, int index) const override;
     // DSP timing is stored per bus on bit 0 (A0 -> P0); M is looked up as P.
     IdString dsp_timing_pin(IdString port) const;
@@ -98,7 +101,7 @@ struct Spartan6Impl : HimbaechelAPI
     struct FFInfo
     {
         const NetInfo *clk = nullptr, *ce = nullptr, *sr = nullptr;
-        bool async = false, latch = false;
+        bool async = false, latch = false, clk_inv = false;
     };
     std::vector<FFInfo> ff_info;
 

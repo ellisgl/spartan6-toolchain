@@ -41,6 +41,8 @@ NEXTPNR_NAMESPACE_BEGIN
 //             ADDRD, which is also the D LUT's read address.)
 //   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
 //             CE on WE. RAMMODE SRL32. Cascades (Q31) are not supported yet.
+// An inverted clock (IS_*CLK_INVERTED) becomes CLK_INV = 1 on the LUT cells;
+// the slice inverts its clock for all of them and its FFs (CLKINV).
 //   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
 //             RAMMODE SRL16.
 
@@ -91,6 +93,10 @@ void Spartan6Impl::pack_lutram()
             log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
     }
 
+    // Inverted write clock (the slice's CLKINV): CLK_INV on the LUT cells.
+    auto clk_inv = [&](const CellInfo *ci, IdString param) {
+        return ci->params.count(param) && ci->params.at(param).as_int64() != 0;
+    };
     auto to_lutram = [&](CellInfo *ci, const char *mode) {
         ci->type = id_SLICE_LUTRAM;
         ci->params[id_RAM_MODE] = std::string(mode);
@@ -99,9 +105,7 @@ void Spartan6Impl::pack_lutram()
     // RAM64X1S: group by address, clock and WE.
     dict<std::string, std::vector<CellInfo *>> groups;
     for (CellInfo *ci : ram64) {
-        if (ci->params.count(id_IS_WCLK_INVERTED) && ci->params.at(id_IS_WCLK_INVERTED).as_int64() != 0)
-            log_error("RAM64X1S %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
-        std::string key;
+        std::string key = clk_inv(ci, id_IS_WCLK_INVERTED) ? "inv|" : "|";
         for (IdString p : {id_A0, id_A1, id_A2, id_A3, id_A4, id_A5, id_WCLK, id_WE}) {
             NetInfo *n = ci->getPort(p);
             key += n ? n->name.str(ctx) : "-";
@@ -131,6 +135,9 @@ void Spartan6Impl::pack_lutram()
                 }
                 move_port(ci, id_D, id_DI1);
                 move_port(ci, id_WCLK, id_CLK);
+                if (clk_inv(ci, id_IS_WCLK_INVERTED))
+                    ci->params[id_CLK_INV] = Property(1, 1);
+                ci->params.erase(id_IS_WCLK_INVERTED);
                 to_lutram(ci, "RAM64");
                 int letter = 3 - int(k); // D first, then C, B, A
                 if (!root) {
@@ -155,8 +162,7 @@ void Spartan6Impl::pack_lutram()
     for (CellInfo *ci : ram32m) {
         bool deep = ci->type == id_RAM64M;
         int abits = deep ? 6 : 5;
-        if (ci->params.count(id_IS_WCLK_INVERTED) && ci->params.at(id_IS_WCLK_INVERTED).as_int64() != 0)
-            log_error("%s %s: inverted clock is not supported yet\n", ci->type.c_str(ctx), ctx->nameOf(ci));
+        bool inv = clk_inv(ci, id_IS_WCLK_INVERTED);
         NetInfo *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
         std::vector<NetInfo *> waddr;
         for (int i = 0; i < abits; i++)
@@ -173,6 +179,8 @@ void Spartan6Impl::pack_lutram()
             }
             add_in(lut, id_WE, we);
             add_in(lut, id_CLK, wclk);
+            if (inv)
+                lut->params[id_CLK_INV] = Property(1, 1);
             if (deep) {
                 add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c", x)));
                 IdString from = ctx->idf("DO%c", x);
@@ -235,9 +243,10 @@ void Spartan6Impl::pack_lutram()
     // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
     for (CellInfo *ci : srl) {
         bool srl16 = ci->type == id_SRL16E;
+        if (clk_inv(ci, id_IS_CLK_INVERTED))
+            ci->params[id_CLK_INV] = Property(1, 1);
+        ci->params.erase(id_IS_CLK_INVERTED);
         if (srl16) {
-            if (ci->params.count(id_IS_CLK_INVERTED) && ci->params.at(id_IS_CLK_INVERTED).as_int64() != 0)
-                log_error("SRL16E %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
             static const IdString a16[4] = {id_A0, id_A1, id_A2, id_A3};
             static const IdString la16[4] = {id_A2, id_A3, id_A4, id_A5};
             std::vector<NetInfo *> addr;
@@ -262,8 +271,6 @@ void Spartan6Impl::pack_lutram()
         NetInfo *q31 = ci->getPort(id_Q31);
         if (q31 && q31->users.entries())
             log_error("SRLC32E %s: cascades (Q31) are not supported yet\n", ctx->nameOf(ci));
-        if (ci->params.count(id_IS_CLK_INVERTED) && ci->params.at(id_IS_CLK_INVERTED).as_int64() != 0)
-            log_error("SRLC32E %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
         static const IdString a[5] = {ctx->id("A[0]"), ctx->id("A[1]"), ctx->id("A[2]"), ctx->id("A[3]"),
                                       ctx->id("A[4]")};
         static const IdString la[5] = {id_A2, id_A3, id_A4, id_A5, id_A6};

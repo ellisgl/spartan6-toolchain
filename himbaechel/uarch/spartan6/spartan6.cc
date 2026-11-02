@@ -89,11 +89,18 @@ void Spartan6Impl::pack()
     pack_clocking();
     pack_bram();
     pack_dsp();
+    absorb_clock_inverters();
     pack_lutram();
     pack_logic();
     pack_carries();
     pack_wide();
     pack_lut_pairs();
+}
+
+bool Spartan6Impl::clk_inverted(const CellInfo *cell) const
+{
+    auto it = cell->params.find(id_CLK_INV);
+    return it != cell->params.end() && it->second.as_int64() != 0;
 }
 
 bool Spartan6Impl::lut_input_unused(const CellInfo *cell, IdString port) const
@@ -244,6 +251,14 @@ void Spartan6Impl::prePlace()
         IdString kind = ctx->id(ci->params.at(id_FF_TYPE).as_string());
         fi.async = kind.in(id_FDCE, id_FDPE);
         fi.latch = kind.in(id_LDCE, id_LDPE);
+        fi.clk_inv = clk_inverted(ci);
+    }
+    // Inverted slice clock: the falling-edge timing variants.
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (!ctx->speed_grade || !clk_inverted(ci) || !ci->type.in(id_SLICE_FF, id_SLICE_FF5, id_SLICE_LUTRAM))
+            continue;
+        ci->timing_index = ctx->get_cell_timing_idx(ctx->id(ci->type.str(ctx) + "_N"));
     }
 }
 
@@ -313,7 +328,7 @@ bool Spartan6Impl::slice_controls_ok(int x, int y, int base, bool explain_invali
 {
     // RAM/SRL LUTs share the slice's WE and clock.
     const NetInfo *ram_clk = nullptr, *ram_we = nullptr;
-    bool have_ram = false;
+    bool have_ram = false, ram_inv = false;
     for (int letter = 0; letter < 4; letter++) {
         const CellInfo *ci = cell_at(x, y, base + letter * 8 + s6z::LUT6);
         if (!ci || ci->type != id_SLICE_LUTRAM)
@@ -323,9 +338,15 @@ bool Spartan6Impl::slice_controls_ok(int x, int y, int base, bool explain_invali
                 log_nonfatal_error("slice at X%dY%d: RAM/SRL LUTs with different clock or WE\n", x, y);
             return false;
         }
+        if (have_ram && clk_inverted(ci) != ram_inv) {
+            if (explain_invalid)
+                log_nonfatal_error("slice at X%dY%d: RAM/SRL LUTs with different clock polarity\n", x, y);
+            return false;
+        }
         have_ram = true;
         ram_clk = ci->getPort(id_CLK);
         ram_we = ci->getPort(id_WE);
+        ram_inv = clk_inverted(ci);
     }
     const FFInfo *ref = nullptr;
     for (int letter = 0; letter < 4; letter++) {
@@ -334,7 +355,7 @@ bool Spartan6Impl::slice_controls_ok(int x, int y, int base, bool explain_invali
             if (!ci)
                 continue;
             const FFInfo &fi = ff_info.at(ci->flat_index);
-            if (have_ram && fi.clk != ram_clk) {
+            if (have_ram && (fi.clk != ram_clk || fi.clk_inv != ram_inv)) {
                 if (explain_invalid)
                     log_nonfatal_error("slice at X%dY%d: FF and RAM/SRL clocks differ\n", x, y);
                 return false;
@@ -344,7 +365,7 @@ bool Spartan6Impl::slice_controls_ok(int x, int y, int base, bool explain_invali
                 continue;
             }
             if (fi.clk != ref->clk || fi.ce != ref->ce || fi.sr != ref->sr || fi.async != ref->async ||
-                fi.latch != ref->latch) {
+                fi.latch != ref->latch || fi.clk_inv != ref->clk_inv) {
                 if (explain_invalid)
                     log_nonfatal_error("slice at X%dY%d: FF %s has a different control set\n", x, y, ctx->nameOf(ci));
                 return false;
