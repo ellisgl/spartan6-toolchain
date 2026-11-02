@@ -14,7 +14,7 @@ DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
 NEXTPNR_REPO   := https://github.com/ellisgl/nextpnr.git
-NEXTPNR_REV    := 8a317b6d6ae78f744eecb26957423be8ef1387df
+NEXTPNR_REV    := 24b9f7be202600fbd21ccf620ec21ad509512de0
 PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
@@ -202,7 +202,9 @@ endif
 #                      # into data/timing-xc6slx9-2.json (see s6-timing).
 #                      # Uses the current routes, so run it after `make`.
 
-TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate
+TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate speed
+# DSP48A1 characterization (tools/gen_dsp_char.py): cell timing only.
+TIMING_CELL_DESIGNS ?= $(notdir $(wildcard tests/dsp_char*))
 S6TIMING := $(BUILD)/target/release/s6-timing
 $(S6TIMING): $(EXPORTER)
 
@@ -213,10 +215,11 @@ $(BUILD)/%/timing_sim.sdf: $(BUILD)/%/ise.bin
 
 # Not a file rule: the chip database depends on the committed data file, and
 # make must never try to regenerate it (that needs ISE).
-timing-data: $(foreach t,$(TIMING_DESIGNS),$(BUILD)/$(t)/timing_sim.sdf) $(S6TIMING) $(BUILD)/$(DEVICE).json
+timing-data: $(foreach t,$(TIMING_DESIGNS) $(TIMING_CELL_DESIGNS),$(BUILD)/$(t)/timing_sim.sdf) $(S6TIMING) $(BUILD)/$(DEVICE).json
 	@mkdir -p data
 	$(S6TIMING) --chipdb-json $(BUILD)/$(DEVICE).json --out $(TIMING_DATA) \
-		$(foreach t,$(TIMING_DESIGNS),--design $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf)
+		$(foreach t,$(TIMING_DESIGNS),--design $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf) \
+		$(foreach t,$(TIMING_CELL_DESIGNS),--cells-only $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf)
 .PHONY: timing-data
 
 pnr:  $(T)/routed.json

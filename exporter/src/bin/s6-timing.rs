@@ -26,6 +26,10 @@ struct Args {
     /// routed.json:timing_sim.sdf pairs (several designs give more data).
     #[arg(long, required = true)]
     design: Vec<String>,
+    /// Like --design, but only for cell timing (not the routing fit):
+    /// characterization designs that would skew the routing model.
+    #[arg(long)]
+    cells_only: Vec<String>,
     #[arg(long)]
     out: PathBuf,
     /// Print the worst-fitting connections.
@@ -108,6 +112,12 @@ fn our_port(celltype: &str, port: &str) -> Option<String> {
             "SRST" | "RST" | "SET" | "SSET" => Some("SR".into()),
             _ => None,
         },
+        // Bus pins: ISE "C[23]", ours "C23" (the clock isn't routed by us
+        // through general routing in a way worth fitting).
+        "X_DSP48A1" | "X_RAMB16BWER" | "X_RAMB8BWER" if port.contains('[') => {
+            Some(port.replace('[', "").replace(']', ""))
+        }
+        "X_DSP48A1" | "X_RAMB16BWER" | "X_RAMB8BWER" if !port.starts_with("CLK") => Some(port.to_string()),
         _ => None,
     }
 }
@@ -131,7 +141,8 @@ fn main() {
     let mut setups: BTreeMap<(String, String, String), (Vec<f64>, Vec<f64>)> = BTreeMap::new();
     let mut unmatched = 0usize;
 
-    for d in &args.design {
+    let designs = args.design.iter().map(|d| (d, true)).chain(args.cells_only.iter().map(|d| (d, false)));
+    for (d, fit_routing) in designs {
         let (routed, sdf_path) = d.split_once(':').expect("--design routed.json:file.sdf");
         let (cells, nets): (Vec<NCell>, Vec<NNet>) = load_routed(std::path::Path::new(routed));
         let sdf = Sdf::parse(&std::fs::read_to_string(sdf_path).expect("read sdf"));
@@ -157,19 +168,46 @@ fn main() {
                 && let Some((cname, pin)) = rest.rsplit_once('/')
                 && let Some(p) = cell.iopath.first()
             {
+                // Block RAM bus pins: "ADDRA<10>" (the cell's port is "ADDRA[10]").
+                let bus = pin.replace('<', "[").replace('>', "]");
                 let port = match pin {
                     "IN" => "I",
-                    other => other,
+                    _ => bus.as_str(),
                 };
                 nlw.insert((cname.to_string(), port.to_string()), p.del_rise.max.0.0.max(p.del_fall.max.0.0));
             }
         }
         // DSP timing depends on the pipeline registers: record its arcs per
-        // setup (P = PREG, M = MREG, IN = only input registers).
-        let dsp_cfg = |name: &str| -> Option<&'static str> {
+        // configuration, keyed by the registered groups in the order
+        // A B C D M P O(PMODE), e.g. "ACP"; "" when none. When all of OPMODE is
+        // tied to constants, "_<hex>" follows (ISE drops the paths that mode
+        // can't use).
+        let dsp_cfg = |name: &str| -> Option<String> {
             let c = &cells[*by_name.get(name)?];
             let on = |k: &str| c.params.get(k).is_some_and(|v| v.chars().any(|ch| ch == '1'));
-            Some(if on("PREG") { "P" } else if on("MREG") { "M" } else { "IN" })
+            let groups = [
+                ('A', on("A0REG") || on("A1REG")),
+                ('B', on("B0REG") || on("B1REG")),
+                ('C', on("CREG")),
+                ('D', on("DREG")),
+                ('M', on("MREG")),
+                ('P', on("PREG")),
+                ('O', on("OPMODEREG")),
+            ];
+            let mut key: String = groups.iter().filter(|g| g.1).map(|g| g.0).collect();
+            let mut opmode = 0u32;
+            let mut constant = true;
+            for i in 0..8 {
+                match c.conns.get(&format!("OPMODE{i}")).map(|&n| nets[n].constant) {
+                    None | Some(Some(false)) => {}
+                    Some(Some(true)) => opmode |= 1 << i,
+                    Some(None) => constant = false,
+                }
+            }
+            if constant {
+                key += &format!("_{opmode:02x}");
+            }
+            Some(key)
         };
         for (inst, cell) in &sdf.cells_by_name {
             let name = unescape(inst);
@@ -197,7 +235,7 @@ fn main() {
             let Some(&ci) = by_name.get(&name) else { continue };
             let c = &cells[ci];
             for port in &cell.ports {
-                let Some(ours) = our_port(ty, &port.port) else { continue };
+                let Some(ours) = our_port(&cell.typ, &port.port) else { continue };
                 let Some(&ni) = c.conns.get(&ours) else { continue };
                 let net = &nets[ni];
                 if net.constant.is_some() || net.route.is_empty() {
@@ -230,7 +268,9 @@ fn main() {
                 if net.users.len() > 1 {
                     classes.insert("~FANOUT".into(), (net.users.len() - 1) as f64);
                 }
-                samples.push(Sample { classes, delay, what: format!("{} {}.{}", net.name, c.name, ours) });
+                if fit_routing {
+                    samples.push(Sample { classes, delay, what: format!("{} {}.{}", net.name, c.name, ours) });
+                }
             }
         }
     }

@@ -477,7 +477,7 @@ fn main() {
                             // offers ALT only for shift cascades).
                             "DI1" => (vec![format!("{l}X")], false),
                             "DI2" => (vec![format!("{l}I")], false),
-                            "WE" => (vec!["WE".into(), "CE".into()], false),
+                            "WE" => (vec!["WE".into()], false), // only the WE pin (CE would gate the FFs)
                             "CLK" => (vec!["CLK".into()], false),
                             "O" => (vec![l.to_string()], true),
                             "O5" => (vec![format!("{l}MUX")], true),

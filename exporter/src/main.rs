@@ -267,7 +267,12 @@ impl TypeBuilder {
         {
             return;
         }
-        let timing_class = s6_export::pip_timing_class(kind, &self.out.wires[dst].name, &src_ref);
+        let mut timing_class = s6_export::pip_timing_class(kind, &self.out.wires[dst].name, &src_ref);
+        // Input muxes in front of an interface tile (block RAM and DSP
+        // columns) are timed differently from the ones into slices.
+        if timing_class.starts_with("IMUX") && self.out.name.split('+').any(|c| c == "INTF") {
+            timing_class += "@INTF";
+        }
         self.out.pips.push(OutPip { src, dst, kind, inv, timing_class, src_ref });
     }
 }

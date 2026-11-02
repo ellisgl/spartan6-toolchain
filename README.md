@@ -143,35 +143,54 @@ prjcombine has no Spartan-6 timing, so the delays come from ISE: for each
 test design placed and routed by nextpnr, ISE's `netgen -sim` writes an SDF
 file for the same placement and routing (from the NCD that `make ise-check`
 builds). In it every cell input carries the routing delay from its driver
-(netgen puts FF inputs' routing on `NlwBufferBlock_*` buffers). `s6-timing`
-walks our route back from each input and fits one delay per pip class (the
-class of the driven wire, e.g. `SNG_W`, `QUAD_NN`, `IMUX_LOGICIN`, or the
-slice mux) by non-negative least squares, and collects ISE's cell delays and
+(netgen puts FF and block RAM inputs' routing on `NlwBufferBlock_*`
+buffers). `s6-timing` walks our route back from each LUT, FF, block RAM and
+DSP input and fits one delay per pip class (the class of the driven wire,
+e.g. `SNG_W`, `QUAD_NN`, `IMUX_LOGICIN`, or the slice mux; input muxes in
+the block RAM / DSP columns' interface tiles are separate classes,
+`IMUX_LOGICIN@INTF`) by non-negative least squares, and collects ISE's cell delays and
 setup/hold checks. The result, `data/timing-xc6slx9-2.json`, is committed;
 `make timing-data` regenerates it (needs ISE).
 
 `gen/s6_timing.py` puts it in the chip database: pip class delays, and cell
 timing for LUTs, FFs, CARRY4, wide muxes, RAM/SRL LUTs, BRAM, BUFGMUX and
-three DSP48A1 variants by pipeline registers (the uarch picks one per cell).
-nextpnr then places and routes timing-driven and reports Fmax.
+DSP48A1 (below). nextpnr then places and routes timing-driven and reports
+Fmax.
 
-Fit: 43,073 connections from 9 designs, 157 ps rms error (mean connection
-delay 1.48 ns). Against ISE's own analyser (`trce`) on the same placement
+**DSP48A1.** Its timing depends on which pipeline registers are on and, when
+OPMODE is tied to a constant, on the mode (ISE drops the paths the mode
+can't use: a plain multiply's clock-to-P is 4.6 ns, multiply-add's 5.9 ns).
+`tools/gen_dsp_char.py` generates characterization designs
+(`tests/dsp_char*`, 16 DSPs each): all 128 combinations of the A, B, C, D,
+M, P and OPMODE registers with OPMODE from logic, and the 64 combinations of
+A..P for each of the constant modes 01, 09 (with PREG; ISE requires it), 0d,
+11, 1d and 03. That's 480 chip database variants, `DSP_<registers>` and
+`DSP_<registers>_<mode>`; the uarch picks one per cell in `prePlace`, the
+constant-mode one when it exists. ISE times buses as a whole (`A[17:0] ->
+P[47:0]`), so arcs are stored once on bit 0 and the uarch maps every bus pin
+onto it. M isn't measured (ISE won't use M and P together) and is timed as
+P. The characterization designs give cell timing only (`--cells-only`):
+their long shift registers would skew the routing fit.
+
+Fit: 46,080 connections from 10 designs, 164 ps rms error (mean connection
+delay 1.42 ns). Against ISE's own analyser (`trce`) on the same placement
 and routing (`tools/timing-compare.py`):
 
 | Design | nextpnr | ISE trce | Error |
 |---|---|---|---|
-| uart_echo | 7.13 ns | 7.16 ns | -0.4% |
-| rom | 6.21 ns | 6.26 ns | -0.9% |
-| lutram | 8.05 ns | 7.94 ns | +1.3% |
-| speed | 9.73 ns | 9.36 ns | +4.0% |
-| dsp | 8.15 ns | 8.81 ns | -7.6% |
-| fill | 10.09 ns | 10.98 ns | -8.1% |
-| bram | 9.30 ns | 8.40 ns | +10.8% |
-| alu (DSPs) | 15.99 ns | 13.35 ns | +19.8% |
+| bram | 9.34 ns | 9.29 ns | +0.6% |
+| fill | 10.07 ns | 9.98 ns | +1.0% |
+| rom | 6.51 ns | 6.67 ns | -2.5% |
+| speed | 10.33 ns | 9.82 ns | +5.2% |
+| alu (DSPs) | 14.73 ns | 13.95 ns | +5.7% |
+| uart_echo | 7.19 ns | 7.63 ns | -5.8% |
+| lutram | 7.06 ns | 7.65 ns | -7.6% |
+| dsp | 8.55 ns | 7.91 ns | +8.0% |
+| clocks | 7.67 ns | 8.38 ns | -8.6% |
 
-DSP clock-to-out is taken as the slowest measured for its register setup,
-so designs whose critical path starts in a DSP come out pessimistic.
+What's left is mostly the routing model: per connection it's off by
+~160 ps rms, and a long or high-fanout route (dsp's critical path is LUTs
+with one 4.4 ns net) carries most of a path's error.
 
 LUT inputs a table doesn't depend on get no timing arc (the uarch overrides
 `getCellDelay`/`getPortTimingClass`): LUTs sharing a LUT6 site are wired to
@@ -355,7 +374,8 @@ primary source is kept, as an always-on pip) and factory-test wires
 - **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
   BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV fed from the BUFG on CLKIN2.
 - **Timing:** the speed grade comes from the device name (default -2);
-  DSP cells get a timing variant by pipeline registers (`prePlace`).
+  DSP cells get a timing variant by pipeline registers and constant OPMODE
+  (`prePlace`); bus pins are timed through bit 0 (`dsp_timing_pin`).
 - **Distributed RAM / SRL (`lutram.cc`):** SLICEM LUTs as RAM64X1S (up to four
   per slice sharing the address, one always the D LUT, whose inputs are the
   write address), RAM32M (whole slice) and SRLC32E/SRL16E (any SLICEM LUT).
@@ -403,7 +423,8 @@ Packer limits for now:
   driven dynamically.
 - **Untested:** SRL initial values other than 0, RAM32M initial values, PLL
   fed through CLKIN1 (BUFIO2) rather than CLKIN2.
-- **Timing:** from the delay model below; DSP paths are pessimistic.
+- **Timing:** from the delay model below; DSP OPMODE values other than the
+  six measured fall back to the OPMODE-from-logic numbers (pessimistic).
 - **Constant CE/SR:** CE tied high and SR tied low are disconnected in the
   packer (slice defaults), since ISE treats GND -> SR as an excluded arc.
 - **No OUTMUX=O6:** the exporter leaves out the OUTMUX=O6 slice option. It

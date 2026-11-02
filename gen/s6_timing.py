@@ -18,6 +18,7 @@ import re
 
 # Unmeasured routing (clock spines, I/O, ...): a typical routing hop.
 DEFAULT_ROUTING_PS = 250
+MIN_SPLIT_SAMPLES = 10
 
 
 def ps(v):
@@ -52,6 +53,12 @@ class CellData:
 def add_timing(ch, dev, timing_path, TimingValue, ClockEdge):
     data = load(timing_path)
     fitted = {k: v["delay_ps"] for k, v in data["pip_classes"].items()}
+    # Interface-tile input muxes (block RAM / DSP columns, "<class>@INTF")
+    # with too few samples to trust take their plain class's value.
+    for k, v in data["pip_classes"].items():
+        base = k.split("@")[0]
+        if "@" in k and v.get("samples", 0) < MIN_SPLIT_SAMPLES and base in fitted:
+            fitted[k] = fitted[base]
     classes = set()
     for tt in dev["tile_types"]:
         for p in tt["pips"]:
@@ -60,6 +67,8 @@ def add_timing(ch, dev, timing_path, TimingValue, ClockEdge):
     unmeasured = []
     for grade in dev["speed_grades"]:
         for cls in sorted(classes):
+            if cls not in fitted and "@" in cls and cls.split("@")[0] in fitted:
+                fitted[cls] = fitted[cls.split("@")[0]]
             if cls in fitted:
                 d = fitted[cls]
             elif cls.startswith("SITE:") or cls in ("BELOUT", "PERMABUF"):
@@ -154,25 +163,35 @@ def add_cells(ch, grade, cd, TimingValue, ClockEdge):
         for pin in ("EN", "REGCE", "RST"):
             setup_hold(bram, f"CLK{ab}", f"{pin}{ab}", sh)
 
-    # DSP48A1: three variants by pipeline registers (the uarch picks one per
-    # cell): DSP_P (PREG: P registered), DSP_M (MREG), DSP_IN (only input
-    # registers; C -> P is then combinational).
-    sh = cd.check("X_DSP48A1:P", r"[ABCD]\[.*\]|OPMODE.*", "CLK") or cd.check("X_DSP48A1", r"[ABCD]\[.*\]|OPMODE.*", "CLK")
-    for variant, cfg in (("DSP_P", "P"), ("DSP_M", "M"), ("DSP_IN", "IN")):
-        dsp = ch.timing.add_cell_variant(grade, variant)
-        co = cd.delay(f"X_DSP48A1:{cfg}", "CLK", r"P\[.*\]|M\[.*\]")
-        for i in range(48):
-            clk_out(dsp, "CLK", f"P{i}", co)
-        for i in range(36):
-            clk_out(dsp, "CLK", f"M{i}", co)
-        comb_c = cfg != "P" and cd.delay("X_DSP48A1:IN", r"C\[.*\]", r"P\[.*\]")
-        for bus, n in (("A", 18), ("B", 18), ("C", 48), ("D", 18), ("OPMODE", 8)):
-            for i in range(n):
-                if bus == "C" and comb_c:
-                    for j in range(48):
-                        comb(dsp, f"C{i}", f"P{j}", comb_c)
-                else:
-                    setup_hold(dsp, "CLK", f"{bus}{i}", sh)
+    # DSP48A1: one variant per pipeline-register configuration, named
+    # DSP_<groups> with the registered groups in the order A B C D M P
+    # O(PMODE) ("DSP_ACP"; "DSP_NONE" when none), as measured by
+    # tests/dsp_char*. With OPMODE tied to a constant that was measured, the
+    # variant is DSP_<groups>_<hex> (ISE drops paths that mode can't use);
+    # other modes use the plain variant, measured with OPMODE from logic. ISE times whole buses (A[17:0] -> P[47:0]), so each
+    # arc is stored once, on bit 0 of the buses (A0 -> P0); the uarch maps
+    # every bus pin onto bit 0 when nextpnr asks. M isn't measured (ISE
+    # doesn't allow M and P together) and is looked up as P.
+    def dsp_pin(name):
+        m = re.fullmatch(r"(\w+?)\[\d+(:\d+)?\]", name)
+        return f"{m.group(1)}0" if m else name
+
+    dsp_cfgs = sorted({a["celltype"].split(":", 1)[1] for a in cd.arcs + cd.checks
+                       if a["celltype"].startswith("X_DSP48A1:")})
+    for cfg in dsp_cfgs:
+        regs, sep, op = cfg.partition("_")
+        dsp = ch.timing.add_cell_variant(grade, f"DSP_{regs or 'NONE'}{sep}{op}")
+        key = f"X_DSP48A1:{cfg}"
+        for a in cd.arcs:
+            if a["celltype"] != key:
+                continue
+            if a["from"] == "CLK":
+                clk_out(dsp, "CLK", dsp_pin(a["to"]), a["delay_ps"])
+            else:
+                comb(dsp, dsp_pin(a["from"]), dsp_pin(a["to"]), a["delay_ps"])
+        for c in cd.checks:
+            if c["celltype"] == key and c["clock"] == "CLK":
+                setup_hold(dsp, "CLK", dsp_pin(c["data"]), (c["setup_ps"], c["hold_ps"]))
 
     # Global clock buffer.
     bufg = ch.timing.add_cell_variant(grade, "BUFGMUX")

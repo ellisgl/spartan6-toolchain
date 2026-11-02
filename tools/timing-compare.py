@@ -23,7 +23,7 @@ def nextpnr_period(log):
     last = {}
     with open(log) as f:
         for line in f:
-            m = re.search(r"Max frequency for clock '(.*)': ([0-9.]+) MHz", line)
+            m = re.search(r"Max frequency for clock\s+'(.*)': ([0-9.]+) MHz", line)
             if m:
                 last[m.group(1)] = float(m.group(2))
     return 1000.0 / min(last.values()) if last else None
