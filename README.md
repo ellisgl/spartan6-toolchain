@@ -8,7 +8,8 @@ nextpnr himbaechel uarch built on prjcombine. The plan is in
 
 - **Chip database exporter (§1):** working. Slices are split into sub-bels
   (see below).
-- **nextpnr uarch (§3–5, `uarch/spartan6`):** first version. Blinky
+- **nextpnr uarch (§3–5):** lives in the nextpnr fork, branch
+  [`spartan6`](https://github.com/ellisgl/nextpnr/tree/spartan6/himbaechel/uarch/spartan6). first version. Blinky
   (`tests/blinky`, Mojo V3 pinout) packs, places and routes. Clock routing
   uses the dedicated BUFGMUX → GCLK → HCLK network.
 - **XDL writer (§6):** working. `s6-xdl` converts our packed, placed and
@@ -55,9 +56,16 @@ view of the device and builds prjcombine's naming database
 `tests/<name>/`, with pins from `tests/<name>/pins.ucf` or
 `tests/mojo_v3.ucf`.
 
-`make` clones nextpnr at a pinned revision into `build/nextpnr`, links
-`uarch/spartan6` into its source tree, and adds `spartan6` to himbaechel's
-uarch list. To run nextpnr by hand:
+`make` clones nextpnr from the fork's `spartan6` branch, at the revision
+pinned in the Makefile (`NEXTPNR_REV`), into `build/nextpnr`. To work on the
+uarch, use your own checkout of that branch instead; it is built in
+`build/nextpnr-build-dev`:
+
+```
+make NEXTPNR_SRC=../nextpnr-fork pnr TEST=cylon
+```
+
+After pushing uarch changes, bump `NEXTPNR_REV`. To run nextpnr by hand:
 
 ```
 build/nextpnr-build/nextpnr-himbaechel --device xc6slx9-2tqg144 \
@@ -101,6 +109,15 @@ tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
 
 `mojo-load.py` speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
+
+openFPGALoader can do the same with the `mojov3` board from the fork's
+[`mojo-v3`](https://github.com/ellisgl/openFPGALoader/tree/mojo-v3) branch
+(.bin or .bit; RAM and flash both tested on hardware):
+
+```
+openFPGALoader -b mojov3 build/cylon/design.bin       # RAM
+openFPGALoader -b mojov3 -f build/cylon/design.bin    # flash, verified
+```
 
 ## Bitstream writer (`exporter/src/bin/s6-bitgen/`)
 
@@ -227,7 +244,7 @@ primary source is kept, as an always-on pip) and factory-test wires
   aren't clock-capable.
 - The xc6slx9 has no inverting pips.
 
-## The uarch (`uarch/spartan6`)
+## The uarch (nextpnr fork, `himbaechel/uarch/spartan6`)
 
 - **Device and pins:** parses the device (`xc6slx9[-speed]tqg144`), loads the
   chip database and reads a UCF subset (`-o ucf=`): LOC, IOSTANDARD, DRIVE,

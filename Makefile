@@ -4,13 +4,17 @@
 #   make check           # routing/bel sanity checks on the exported database
 #   make blinky          # synthesize, place and route tests/blinky for the Mojo V3
 #
-# nextpnr and prjcombine are pinned. nextpnr is cloned into build/nextpnr and
-# our uarch (uarch/spartan6) is linked into its source tree.
+# nextpnr and prjcombine are pinned. nextpnr, with the spartan6 uarch, comes
+# from the fork's spartan6 branch and is cloned into build/nextpnr. To work on
+# the uarch, point NEXTPNR_SRC at your own checkout of that branch (built in
+# build/nextpnr-build-dev):
+#   make NEXTPNR_SRC=../nextpnr-fork pnr TEST=cylon
 
 DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
-NEXTPNR_REV    := a2c6479977d64d312686d853a93941744fdbeacf
+NEXTPNR_REPO   := https://github.com/ellisgl/nextpnr.git
+NEXTPNR_REV    := 0bd4b637387c669885e00c7e271c4ce2ea868229
 PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
@@ -20,29 +24,41 @@ SYNTH_FLAGS    ?= -nocarry -nowidelut -nosrl -nolutram -nobram -nodsp
 BUILD    := build
 EXPORTER := $(BUILD)/target/release/s6-export
 DB       := $(BUILD)/spartan6-$(PRJCOMBINE_REV).zstd
+NEXTPNR_SRC ?=
+ifeq ($(NEXTPNR_SRC),)
 NEXTPNR  := $(BUILD)/nextpnr
 NPNR_BLD := $(BUILD)/nextpnr-build
+NPNR_FETCHED := $(NEXTPNR)/.fetched-$(NEXTPNR_REV)
+else
+NEXTPNR  := $(NEXTPNR_SRC)
+NPNR_BLD := $(BUILD)/nextpnr-build-dev
+NPNR_FETCHED :=
+endif
 NPNR_BIN := $(NPNR_BLD)/nextpnr-himbaechel
 BBASM    := $(NPNR_BLD)/bba/bbasm
 CHIPDB   := $(BUILD)/chipdb-$(DEVICE).bin
-UARCH_SRC := $(wildcard uarch/spartan6/*)
+UARCH_DIR := $(NEXTPNR)/himbaechel/uarch/spartan6
+UARCH_SRC := $(wildcard $(UARCH_DIR)/*)
 
 all: $(CHIPDB) $(NPNR_BIN)
 
 # --- nextpnr ---------------------------------------------------------------
 
-$(NEXTPNR)/.fetched:
-	rm -rf $(NEXTPNR)
+ifeq ($(NEXTPNR_SRC),)
+# The stamp names the revision, so changing NEXTPNR_REV re-clones.
+$(NPNR_FETCHED):
+	rm -rf $(NEXTPNR) $(NPNR_BLD)
 	git init -q $(NEXTPNR)
-	git -C $(NEXTPNR) fetch -q --depth 1 https://github.com/YosysHQ/nextpnr.git $(NEXTPNR_REV)
+	git -C $(NEXTPNR) fetch -q --depth 1 $(NEXTPNR_REPO) $(NEXTPNR_REV)
 	git -C $(NEXTPNR) checkout -q FETCH_HEAD
-	ln -s $(abspath uarch/spartan6) $(NEXTPNR)/himbaechel/uarch/spartan6
-	# Register the uarch (nextpnr keeps a fixed list).
-	sed -i 's/^set(HIMBAECHEL_UARCHES \(.*\))$$/set(HIMBAECHEL_UARCHES \1 spartan6)/' $(NEXTPNR)/himbaechel/CMakeLists.txt
-	grep -q 'HIMBAECHEL_UARCHES .* spartan6)' $(NEXTPNR)/himbaechel/CMakeLists.txt
+	test -f $(UARCH_DIR)/spartan6.cc
 	touch $@
 
-$(NPNR_BLD)/Makefile: $(NEXTPNR)/.fetched
+# .SECONDARY (below) would otherwise let make skip a missing stamp.
+.NOTINTERMEDIATE: $(NPNR_FETCHED)
+endif
+
+$(NPNR_BLD)/Makefile: $(NPNR_FETCHED)
 	cmake -S $(NEXTPNR) -B $(NPNR_BLD) -DARCH=himbaechel -DHIMBAECHEL_UARCH=spartan6 \
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_PYTHON=OFF -DBUILD_TESTS=OFF
 
@@ -67,8 +83,8 @@ $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)
 	$(EXPORTER) --db $(DB) --device $(DEVICE) --out $@
 
 # The uarch's constids are preloaded so string indices match the compiled uarch.
-$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py uarch/spartan6/constids.inc $(NEXTPNR)/.fetched
-	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids uarch/spartan6/constids.inc --json $< --bba $@
+$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py $(NPNR_FETCHED) $(wildcard $(UARCH_DIR)/constids.inc)
+	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@
 
 $(CHIPDB): $(BUILD)/$(DEVICE).bba $(BBASM)
 	$(BBASM) --l $< $@
