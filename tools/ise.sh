@@ -30,6 +30,12 @@ awk '/^processor/ { n++ } n > 1 { exit }
      /^(vmx flags|bugs)/ { next }
      { print }' /proc/cpuinfo > "$CPUINFO"
 
+# Forward ISE control variables (e.g. XIL_TEST_ARCS, set by prjcombine's dumper).
+XIL_ENV=()
+for v in $(compgen -e | grep '^XIL_' || true); do
+    XIL_ENV+=(-e "$v")
+done
+
 # settings64.sh takes its first positional argument as the install path, so
 # pass it explicitly (otherwise it would see the tool command).
 docker run --rm -i \
@@ -38,6 +44,7 @@ docker run --rm -i \
     -v "$CPUINFO:/proc/cpuinfo:ro" \
     -e XILINXD_LICENSE_FILE=/lic/Xilinx.lic \
     -e HOME=/tmp \
+    "${XIL_ENV[@]}" \
     -v "$MOUNT:$MOUNT" -w "$PWD" \
     "$IMAGE" \
     bash -c '. /opt/Xilinx/14.7/ISE_DS/settings64.sh /opt/Xilinx/14.7/ISE_DS >/dev/null && exec "$@"' ise "$@"

@@ -11,9 +11,12 @@ nextpnr himbaechel uarch built on prjcombine. The plan is in
 - **nextpnr uarch (§3–5, `uarch/spartan6`):** first version. Blinky
   (`tests/blinky`, Mojo V3 pinout) packs, places and routes. Clock routing
   uses the dedicated BUFGMUX → GCLK → HCLK network.
-- **No bitstream yet.** The routed result is nextpnr's JSON
-  (`build/blinky/routed.json`). The XDL writer (§6) and bitstream writer (§7)
-  are next.
+- **XDL writer (§6), stage 1:** working. `s6-xdl` converts our packed and
+  placed design into XDL. ISE routes it (`par` keeps our placement), checks it
+  with `drc` (0 errors on blinky and cylon) and builds the bitstream. Cylon
+  built this way runs correctly on the Mojo V3. Stage 2
+  will write our own routing as pips.
+- **Bitstream writer (§7):** not started; ISE's `bitgen` is used for now.
 
 ## Pipeline
 
@@ -30,10 +33,16 @@ prjcombine spartan6.zstd ──s6-export (Rust)──▶ xc6slx9.json ──s6_g
   routing graph for the connections Blinky needs.
 
 ```
-make          # build/chipdb-xc6slx9.bin and build/nextpnr-build/nextpnr-himbaechel
-make check    # chip database sanity checks
-make blinky   # yosys + nextpnr on tests/blinky -> build/blinky/routed.json
+make                    # build/chipdb-xc6slx9.bin and build/nextpnr-build/nextpnr-himbaechel
+make check              # chip database sanity checks
+make pnr  TEST=cylon    # yosys + nextpnr                 -> build/cylon/routed.json
+make bit  TEST=cylon    # + s6-xdl + ISE par/drc/bitgen   -> build/cylon/design.bin
+make load TEST=cylon    # + load into the Mojo's FPGA RAM
 ```
+
+`make bit` needs ISE (see below). The first run also dumps ISE's view of the
+device and builds prjcombine's naming database (`build/xc6slx9-geom.zstd`,
+about 2 minutes).
 
 `make` clones nextpnr at a pinned revision into `build/nextpnr`, links
 `uarch/spartan6` into its source tree, and adds `spartan6` to himbaechel's
@@ -81,6 +90,26 @@ tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
 
 `mojo-load.py` speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
+
+## XDL output (`exporter/src/bin/s6-xdl.rs`)
+
+ISE names (tiles, sites, wires) come from prjcombine's own naming database.
+The database is built from ISE: `s6-rawdump` runs prjcombine's ISE dumper for
+the xc6slx9 only, through the `tools/ise-bin` wrappers, and prjcombine's
+`xrd2geom` converts the dump. `s6-xdl` checks that this database's
+interconnect structure matches the published database the chipdb came from.
+
+The site configuration strings follow what ISE writes (compare
+`xdl -ncd2xdl` on an ISE build) and prjcombine's `v2xdl-verify`:
+
+- **LUTs:** `<L>6LUT` with an O6 equation. Constant inputs are folded into
+  the equation.
+- **FFs:** `<L>FF` with `#FF`, plus `<L>FFMUX` (O6 or the `<L>X` bypass) and
+  `<L>FFSRINIT`.
+- **Slice-wide settings:** `CLKINV`, `SYNC_ATTR`, and `CEUSED`/`SRUSED`.
+  Constant CE/SR inputs are left off.
+- **IOBs:** standard, drive and slew from the UCF.
+- **Clock buffers:** BUFGMUX sites are written as `BUFG` instances.
 
 ## How prjcombine maps onto himbaechel
 
@@ -163,7 +192,8 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **ISE names** for XDL output. These need prjcombine's unpublished geom
-  database (see the plan, §1).
+- **XDL stage 2:** write our routing as pips. prjcombine's
+  `ExpandedGridNaming::get_tile_pip_naming` names interconnect pips. Pseudo-pips
+  (slice muxes, IOB paths) map to site configs and route-throughs.
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
   future bitstream writer. The `.bba` doesn't carry it.

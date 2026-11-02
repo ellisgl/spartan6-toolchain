@@ -1,0 +1,9 @@
+#!/bin/bash
+# Stand-in for an ISE tool on PATH, for programs that expect ISE installed
+# natively (prjcombine's ISE dumper). Forwards to tools/ise.sh, which runs the
+# tool named like this script inside the ISE container. partgen is a symlink.
+#
+# prjcombine's toolchain replaces PATH for the tools it starts, so restore one
+# that has the docker client.
+export PATH="$HOME/bin:/usr/local/bin:/usr/bin:/bin"
+exec "$(dirname "$(readlink -f "$0")")/../ise.sh" "$(basename "$0")" "$@"

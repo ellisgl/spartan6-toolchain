@@ -11,6 +11,14 @@ license = "0BSD OR Apache-2.0"
 prjcombine-spartan6 = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-interconnect = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-entity = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485", features = ["map"] }
+# For s6-rawdump (dumping ISE's view of the device; needs ISE via tools/ise-bin).
+prjcombine-re-toolchain = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-re-xilinx-ise-dump = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+# For s6-xdl (ISE names for XDL output, from the geom database built by xrd2geom).
+prjcombine-re-xilinx-geom = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-re-xilinx-naming = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-re-xilinx-naming-spartan6 = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-re-xilinx-xdl = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }

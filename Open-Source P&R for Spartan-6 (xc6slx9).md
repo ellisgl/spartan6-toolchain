@@ -52,6 +52,8 @@ This is where the Spartan-6-specific logic lives:
 
 ### 6. XDL writer
 
+> **Status (Nov 1):** stage 1 working (`s6-xdl`). Our packing and placement go through ISE `xdl -xdl2ncd`, `par` (which keeps the placement and only routes), `drc` (0 errors) and `bitgen`. Cylon built this way runs correctly on the Mojo V3. ISE names come from prjcombine's naming database, built from ISE with prjcombine's own dumper; the separate ISE-names step in §1 is no longer needed. Stage 2 (writing our own routing as pips) is next.
+
 - Write out the placed and routed design as XDL (instances, site configuration strings, nets with pips) using the ISE names kept in §1.
 - Reuse `prjcombine-re-xilinx-xdl`. It already has an XDL `Design` model with `write` and `parse`, plus a `run_bitgen` helper. The new work is mapping nextpnr's placement and routing onto that model.
 - The Blinky milestone needs this before the bitstream writer exists. See *Validation shortcut* below.

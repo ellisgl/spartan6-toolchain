@@ -76,19 +76,81 @@ $(CHIPDB): $(BUILD)/$(DEVICE).bba $(BBASM)
 check: $(BUILD)/$(DEVICE).json
 	$(PYTHON) -I gen/check_db.py $<
 
+# --- ISE names (for XDL) -----------------------------------------------------
+# Needs ISE (tools/ise-install.sh). s6-rawdump runs ISE's xdl/partgen through
+# the tools/ise-bin wrappers; prjcombine's xrd2geom turns the dump into the
+# naming database s6-xdl uses.
+
+XRD2GEOM := $(BUILD)/tools/bin/xrd2geom
+RAWDUMP  := $(BUILD)/$(DEVICE)-rawdump.zstd
+GEOM     := $(BUILD)/$(DEVICE)-geom.zstd
+S6XDL    := $(BUILD)/target/release/s6-xdl
+ISE      := tools/ise.sh
+
+$(XRD2GEOM):
+	cargo install -q --git https://codeberg.org/prjunnamed/prjcombine.git --rev $(PRJCOMBINE_REV) \
+		prjcombine-re-xilinx-rd2geom --root $(BUILD)/tools --target-dir $(BUILD)/target
+
+$(BUILD)/ise-toolchain.kdl:
+	@mkdir -p $(BUILD)
+	printf 'env PATH="%s"\n' "$(abspath tools/ise-bin)" > $@
+
+$(RAWDUMP): $(EXPORTER) $(BUILD)/ise-toolchain.kdl
+	mkdir -p $(BUILD)/ise-tmp
+	TMPDIR=$(abspath $(BUILD)/ise-tmp) ISE_MOUNT=$(abspath $(BUILD)/ise-tmp) \
+		$(BUILD)/target/release/s6-rawdump $(BUILD)/ise-toolchain.kdl $(DEVICE) $@
+
+$(GEOM): $(RAWDUMP) $(XRD2GEOM)
+	$(XRD2GEOM) convert $@ $<
+
+# s6-rawdump and s6-xdl are built with the exporter.
+$(S6XDL): $(EXPORTER)
+
 # --- test designs ------------------------------------------------------------
+#
+#   make pnr  TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
+#   make bit  TEST=cylon   # + XDL, ISE par/drc/bitgen -> build/cylon/cylon.bin
+#   make load TEST=cylon   # + load into the Mojo's FPGA RAM
+#
+# tests/<name>/*.v with top module <name>, pins from tests/mojo_v3.ucf.
+# Stage 1 XDL: our packing and placement; ISE routes (par keeps placement).
 
-$(BUILD)/blinky/synth.json: tests/blinky/blinky.v
+TEST ?= blinky
+T    := $(BUILD)/$(TEST)
+
+# Keep intermediate files (synth.json, design.xdl) for inspection.
+.SECONDARY:
+.SECONDEXPANSION:
+$(BUILD)/%/synth.json: $$(wildcard tests/$$*/*.v)
 	@mkdir -p $(dir $@)
-	$(YOSYS) -q -l $(BUILD)/blinky/yosys.log -p "synth_xilinx -family xc6s -top blinky $(SYNTH_FLAGS) -json $@" $<
+	$(YOSYS) -q -l $(dir $@)yosys.log -p "synth_xilinx -family xc6s -top $* $(SYNTH_FLAGS) -json $@" $^
 
-$(BUILD)/blinky/routed.json: $(BUILD)/blinky/synth.json tests/mojo_v3.ucf $(CHIPDB) $(NPNR_BIN)
+$(BUILD)/%/routed.json: $(BUILD)/%/synth.json tests/mojo_v3.ucf $(CHIPDB) $(NPNR_BIN)
 	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
-		-o ucf=tests/mojo_v3.ucf --write $@ --log $(BUILD)/blinky/nextpnr.log
+		-o ucf=tests/mojo_v3.ucf --write $@ --log $(dir $@)nextpnr.log
 
-blinky: $(BUILD)/blinky/routed.json
+$(BUILD)/%/design.xdl: $(BUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB)
+	$(S6XDL) --db $(DB) --geom $(GEOM) --routed $< --package $(PACKAGE) --out $@
+
+# ISE: XDL -> NCD, route (placement is kept), DRC, bitstream.
+$(BUILD)/%/design.bin: $(BUILD)/%/design.xdl
+	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) xdl -xdl2ncd -force design.xdl design.ncd > xdl2ncd.log
+	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) par -w design.ncd design_routed.ncd > par.log
+	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) drc design_routed.ncd > drc.log
+	grep -q '<0> errors' $(dir $@)drc.log || { grep ERROR $(dir $@)drc.log; exit 1; }
+	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) bitgen -w -g Binary:Yes -g UnusedPin:Pullnone \
+		design_routed.ncd design.bit > bitgen.log
+
+pnr:  $(T)/routed.json
+bit:  $(T)/design.bin
+load: $(T)/design.bin
+	$(PYTHON) -I tools/mojo-load.py $<
+
+# Old name for the first milestone.
+blinky:
+	$(MAKE) pnr TEST=blinky
 
 clean:
-	rm -rf $(BUILD)/*.json $(BUILD)/*.bba $(BUILD)/*.bin $(BUILD)/blinky
+	rm -rf $(BUILD)/*.json $(BUILD)/*.bba $(BUILD)/*.bin $(BUILD)/blinky $(BUILD)/cylon
 
-.PHONY: all check blinky clean
+.PHONY: all check pnr bit load blinky clean
