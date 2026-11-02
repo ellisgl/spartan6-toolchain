@@ -14,7 +14,7 @@ DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
 NEXTPNR_REPO   := https://github.com/ellisgl/nextpnr.git
-NEXTPNR_REV    := 03a8cff4a3e49f7edd8e82c6bed4cd6d3c72b275
+NEXTPNR_REV    := ba36fd72ae89b64c9d01310b792722433079ce4b
 PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
@@ -81,15 +81,20 @@ $(DB):
 	curl -fsSL -o $@.tmp https://codeberg.org/prjunnamed/prjcombine/raw/commit/$(PRJCOMBINE_REV)/databases/spartan6.zstd
 	mv $@.tmp $@
 
-$(EXPORTER): exporter/Cargo.toml $(shell find exporter/src -name "*.rs")
+$(EXPORTER): exporter/Cargo.toml $(shell find exporter/src exporter/vendor -name "*.rs")
 	CARGO_TARGET_DIR=$(abspath $(BUILD)/target) cargo build --release --manifest-path exporter/Cargo.toml
 
 $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)
 	$(EXPORTER) --db $(DB) --device $(DEVICE) --out $@
 
 # The uarch's constids are preloaded so string indices match the compiled uarch.
-$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py $(NPNR_FETCHED) $(wildcard $(UARCH_DIR)/constids.inc)
-	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@
+# The delay model (data/timing-xc6slx9-2.json) is committed; `make timing-data`
+# regenerates it with ISE.
+TIMING_DATA := data/timing-$(DEVICE)-2.json
+$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py gen/s6_timing.py $(NPNR_FETCHED) \
+		$(wildcard $(UARCH_DIR)/constids.inc) $(wildcard $(TIMING_DATA))
+	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@ \
+		$(if $(wildcard $(TIMING_DATA)),--timing $(TIMING_DATA))
 
 $(CHIPDB): $(BUILD)/$(DEVICE).bba $(BBASM)
 	$(BBASM) --l $< $@
@@ -190,6 +195,29 @@ endif
 	grep -q '<0> errors' $(dir $@)drc.log || { grep ERROR $(dir $@)drc.log; exit 1; }
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) bitgen -w -g Binary:Yes -g UnusedPin:Pullnone \
 		design_routed.ncd ise.bit > bitgen.log
+
+# --- delay model (needs ISE) ---------------------------------------------------
+#
+#   make timing-data   # ISE timing (netgen SDF) for the test designs, fitted
+#                      # into data/timing-xc6slx9-2.json (see s6-timing).
+#                      # Uses the current routes, so run it after `make`.
+
+TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate
+S6TIMING := $(BUILD)/target/release/s6-timing
+$(S6TIMING): $(EXPORTER)
+
+# ISE's timing simulation SDF for the NCD built from our XDL by ise-check.
+$(BUILD)/%/timing_sim.sdf: $(BUILD)/%/ise.bin
+	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) netgen -sim -ofmt verilog -w \
+		design_routed.ncd timing_sim.v > netgen.log
+
+# Not a file rule: the chip database depends on the committed data file, and
+# make must never try to regenerate it (that needs ISE).
+timing-data: $(foreach t,$(TIMING_DESIGNS),$(BUILD)/$(t)/timing_sim.sdf) $(S6TIMING) $(BUILD)/$(DEVICE).json
+	@mkdir -p data
+	$(S6TIMING) --chipdb-json $(BUILD)/$(DEVICE).json --out $(TIMING_DATA) \
+		$(foreach t,$(TIMING_DESIGNS),--design $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf)
+.PHONY: timing-data
 
 pnr:  $(T)/routed.json
 bit:  $(T)/design.bin

@@ -1,0 +1,3270 @@
+{
+  "cell_checks": [
+    {
+      "celltype": "X_DCM_SP",
+      "clock": "PSCLK",
+      "data": "PSEN",
+      "hold_ps": 0.0,
+      "setup_ps": 1500.0
+    },
+    {
+      "celltype": "X_DCM_SP",
+      "clock": "PSCLK",
+      "data": "PSINCDEC",
+      "hold_ps": 0.0,
+      "setup_ps": 1500.0
+    },
+    {
+      "celltype": "X_DSP48A1:IN",
+      "clock": "CLK",
+      "data": "A[17:0]",
+      "hold_ps": 150.0,
+      "setup_ps": 84.0
+    },
+    {
+      "celltype": "X_DSP48A1:IN",
+      "clock": "CLK",
+      "data": "CEA",
+      "hold_ps": 85.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:IN",
+      "clock": "CLK",
+      "data": "RSTA",
+      "hold_ps": 44.0,
+      "setup_ps": 167.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "A[17:0]",
+      "hold_ps": 83.0,
+      "setup_ps": 161.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "B[17:0]",
+      "hold_ps": 0.0,
+      "setup_ps": 277.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "CEA",
+      "hold_ps": 85.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "CEB",
+      "hold_ps": 85.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "CEM",
+      "hold_ps": 86.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "D[17:0]",
+      "hold_ps": 0.0,
+      "setup_ps": 1950.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "OPMODE[7:0]",
+      "hold_ps": 3.0,
+      "setup_ps": 2000.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "RSTA",
+      "hold_ps": 41.0,
+      "setup_ps": 167.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "RSTB",
+      "hold_ps": 39.0,
+      "setup_ps": 177.0
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "clock": "CLK",
+      "data": "RSTM",
+      "hold_ps": 50.0,
+      "setup_ps": 145.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "A[17:0]",
+      "hold_ps": 83.0,
+      "setup_ps": 161.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "B[17:0]",
+      "hold_ps": 0.0,
+      "setup_ps": 277.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "CEA",
+      "hold_ps": 85.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "CEB",
+      "hold_ps": 85.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "CEP",
+      "hold_ps": 81.0,
+      "setup_ps": 30.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "D[17:0]",
+      "hold_ps": 0.0,
+      "setup_ps": 1950.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "OPMODE[7:0]",
+      "hold_ps": 3.0,
+      "setup_ps": 2000.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "RSTA",
+      "hold_ps": 41.0,
+      "setup_ps": 167.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "RSTB",
+      "hold_ps": 39.0,
+      "setup_ps": 177.0
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "clock": "CLK",
+      "data": "RSTP",
+      "hold_ps": 71.0,
+      "setup_ps": 130.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[0]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[10]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[11]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[12]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[13]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[1]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[2]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[3]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[4]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[5]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[6]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[7]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[8]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ADDRA[9]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[0]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[10]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[11]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[12]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[13]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[1]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[2]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[3]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[4]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[5]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[6]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[7]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[8]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ADDRB[9]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[10]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[11]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[12]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[13]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[14]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[15]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[16]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[17]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[18]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[19]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[20]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[21]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[22]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[23]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[24]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[25]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[26]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[27]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[28]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[29]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[30]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[31]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[4]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[5]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[6]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[7]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[8]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIA[9]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[10]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[11]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[12]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[13]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[14]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[15]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[16]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[17]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[18]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[19]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[20]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[21]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[22]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[23]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[24]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[25]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[26]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[27]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[28]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[29]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[30]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[31]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[4]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[5]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[6]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[7]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[8]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIB[9]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIPA[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIPA[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIPA[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "DIPA[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIPB[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIPB[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIPB[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "DIPB[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "ENA",
+      "hold_ps": 60.0,
+      "setup_ps": 220.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "ENB",
+      "hold_ps": 60.0,
+      "setup_ps": 250.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "REGCEA",
+      "hold_ps": 100.0,
+      "setup_ps": 200.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "REGCEB",
+      "hold_ps": 100.0,
+      "setup_ps": 200.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "WEA[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "WEA[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "WEA[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKA",
+      "data": "WEA[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "WEB[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "WEB[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "WEB[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "clock": "CLKB",
+      "data": "WEB[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[10]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[11]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[12]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[3]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[4]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[5]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[6]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[7]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[8]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ADDRAWRADDR[9]",
+      "hold_ps": 120.0,
+      "setup_ps": 400.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[2]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[3]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[4]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[5]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[6]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIADI[7]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "DIPADIP[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 300.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "ENAWREN",
+      "hold_ps": 60.0,
+      "setup_ps": 220.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "WEAWEL[0]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "clock": "CLKAWRCLK",
+      "data": "WEAWEL[1]",
+      "hold_ps": 100.0,
+      "setup_ps": 330.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "I",
+      "hold_ps": 215.0,
+      "setup_ps": 91.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WADR0",
+      "hold_ps": 419.0,
+      "setup_ps": 0.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WADR1",
+      "hold_ps": 417.0,
+      "setup_ps": 0.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WADR2",
+      "hold_ps": 223.0,
+      "setup_ps": 10.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WADR3",
+      "hold_ps": 152.0,
+      "setup_ps": 85.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WADR4",
+      "hold_ps": 252.0,
+      "setup_ps": 79.0
+    },
+    {
+      "celltype": "X_RAMD32",
+      "clock": "CLK",
+      "data": "WE",
+      "hold_ps": 10.0,
+      "setup_ps": 250.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "I",
+      "hold_ps": 215.0,
+      "setup_ps": 291.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR0",
+      "hold_ps": 419.0,
+      "setup_ps": 0.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR1",
+      "hold_ps": 417.0,
+      "setup_ps": 0.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR2",
+      "hold_ps": 223.0,
+      "setup_ps": 10.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR3",
+      "hold_ps": 152.0,
+      "setup_ps": 85.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR4",
+      "hold_ps": 252.0,
+      "setup_ps": 79.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WADR5",
+      "hold_ps": 5.0,
+      "setup_ps": 313.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WE",
+      "hold_ps": 10.0,
+      "setup_ps": 250.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WE1",
+      "hold_ps": 169.0,
+      "setup_ps": 246.0
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "clock": "CLK",
+      "data": "WE2",
+      "hold_ps": 213.0,
+      "setup_ps": 153.0
+    },
+    {
+      "celltype": "X_SFF",
+      "clock": "CLK",
+      "data": "CE",
+      "hold_ps": 541.0,
+      "setup_ps": 73.0
+    },
+    {
+      "celltype": "X_SFF",
+      "clock": "CLK",
+      "data": "I",
+      "hold_ps": 50.0,
+      "setup_ps": 148.0
+    },
+    {
+      "celltype": "X_SFF",
+      "clock": "CLK",
+      "data": "SRST",
+      "hold_ps": 325.0,
+      "setup_ps": 260.0
+    },
+    {
+      "celltype": "X_SFF",
+      "clock": "CLK",
+      "data": "SSET",
+      "hold_ps": 315.0,
+      "setup_ps": 207.0
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "clock": "CLK",
+      "data": "CE",
+      "hold_ps": 25.0,
+      "setup_ps": 119.0
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "clock": "CLK",
+      "data": "D",
+      "hold_ps": 0.0,
+      "setup_ps": 87.0
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "clock": "CLK",
+      "data": "CE",
+      "hold_ps": 25.0,
+      "setup_ps": 119.0
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "clock": "CLK",
+      "data": "D",
+      "hold_ps": 138.0,
+      "setup_ps": 0.0
+    }
+  ],
+  "cell_delays": [
+    {
+      "celltype": "X_BUF",
+      "delay_ps": 6960.0,
+      "from": "I",
+      "min_ps": 0.0,
+      "samples": 14978,
+      "to": "O"
+    },
+    {
+      "celltype": "X_BUFIO2",
+      "delay_ps": 190.0,
+      "from": "I",
+      "min_ps": 190.0,
+      "samples": 1,
+      "to": "DIVCLK"
+    },
+    {
+      "celltype": "X_BUFIO2",
+      "delay_ps": 314.0,
+      "from": "I",
+      "min_ps": 314.0,
+      "samples": 1,
+      "to": "IOCLK"
+    },
+    {
+      "celltype": "X_BUFIO2",
+      "delay_ps": 1035.0,
+      "from": "I",
+      "min_ps": 1035.0,
+      "samples": 1,
+      "to": "SERDESSTROBE"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 156.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 194.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 212.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 93.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 128.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 218.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 205.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 228.0,
+      "from": "CI",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 225.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 315.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 326.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 259.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 210.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 319.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 322.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 408.0,
+      "from": "CYINIT",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 122.0,
+      "from": "DI[0]",
+      "min_ps": 107.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 232.0,
+      "from": "DI[0]",
+      "min_ps": 231.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 319.0,
+      "from": "DI[0]",
+      "min_ps": 270.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 241.0,
+      "from": "DI[0]",
+      "min_ps": 227.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[0]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 186.0,
+      "from": "DI[0]",
+      "min_ps": 179.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 286.0,
+      "from": "DI[0]",
+      "min_ps": 278.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 331.0,
+      "from": "DI[0]",
+      "min_ps": 325.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 181.0,
+      "from": "DI[1]",
+      "min_ps": 170.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 259.0,
+      "from": "DI[1]",
+      "min_ps": 239.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 168.0,
+      "from": "DI[1]",
+      "min_ps": 125.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 253.0,
+      "from": "DI[1]",
+      "min_ps": 227.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 280.0,
+      "from": "DI[1]",
+      "min_ps": 255.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 145.0,
+      "from": "DI[2]",
+      "min_ps": 144.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 109.0,
+      "from": "DI[2]",
+      "min_ps": 83.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 207.0,
+      "from": "DI[2]",
+      "min_ps": 172.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 23.0,
+      "from": "DI[3]",
+      "min_ps": 15.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "DI[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 137.0,
+      "from": "S[0]",
+      "min_ps": 125.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 246.0,
+      "from": "S[0]",
+      "min_ps": 244.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 307.0,
+      "from": "S[0]",
+      "min_ps": 284.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 237.0,
+      "from": "S[0]",
+      "min_ps": 220.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 130.0,
+      "from": "S[0]",
+      "min_ps": 110.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 200.0,
+      "from": "S[0]",
+      "min_ps": 186.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 317.0,
+      "from": "S[0]",
+      "min_ps": 287.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 348.0,
+      "from": "S[0]",
+      "min_ps": 321.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 215.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 294.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 229.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 118.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 304.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 349.0,
+      "from": "S[1]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 122.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 90.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 150.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 190.0,
+      "from": "S[2]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 58.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "CO[3]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[0]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[1]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 0.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[2]"
+    },
+    {
+      "celltype": "X_CARRY4",
+      "delay_ps": 127.0,
+      "from": "S[3]",
+      "min_ps": 0.0,
+      "samples": 169,
+      "to": "O[3]"
+    },
+    {
+      "celltype": "X_CKBUF",
+      "delay_ps": 209.0,
+      "from": "I",
+      "min_ps": 209.0,
+      "samples": 12,
+      "to": "O"
+    },
+    {
+      "celltype": "X_DCM_SP",
+      "delay_ps": 50.0,
+      "from": "CLKIN",
+      "min_ps": 50.0,
+      "samples": 1,
+      "to": "LOCKED"
+    },
+    {
+      "celltype": "X_DSP48A1:IN",
+      "delay_ps": 5865.0,
+      "from": "CLK",
+      "min_ps": 4572.0,
+      "samples": 2,
+      "to": "P[47:0]"
+    },
+    {
+      "celltype": "X_DSP48A1:IN",
+      "delay_ps": 3141.0,
+      "from": "C[47:0]",
+      "min_ps": 3141.0,
+      "samples": 1,
+      "to": "P[47:0]"
+    },
+    {
+      "celltype": "X_DSP48A1:M",
+      "delay_ps": 2591.0,
+      "from": "CLK",
+      "min_ps": 2591.0,
+      "samples": 1,
+      "to": "P[47:0]"
+    },
+    {
+      "celltype": "X_DSP48A1:P",
+      "delay_ps": 1332.0,
+      "from": "CLK",
+      "min_ps": 1332.0,
+      "samples": 1,
+      "to": "P[47:0]"
+    },
+    {
+      "celltype": "X_LUT5",
+      "delay_ps": 234.0,
+      "from": "ADR0",
+      "min_ps": 0.0,
+      "samples": 3628,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT5",
+      "delay_ps": 234.0,
+      "from": "ADR1",
+      "min_ps": 0.0,
+      "samples": 645,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT5",
+      "delay_ps": 234.0,
+      "from": "ADR2",
+      "min_ps": 0.0,
+      "samples": 3491,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT5",
+      "delay_ps": 234.0,
+      "from": "ADR3",
+      "min_ps": 0.0,
+      "samples": 3484,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT5",
+      "delay_ps": 234.0,
+      "from": "ADR4",
+      "min_ps": 0.0,
+      "samples": 548,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR0",
+      "min_ps": 235.0,
+      "samples": 6082,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR1",
+      "min_ps": 235.0,
+      "samples": 5530,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR2",
+      "min_ps": 235.0,
+      "samples": 5267,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR3",
+      "min_ps": 235.0,
+      "samples": 2273,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR4",
+      "min_ps": 235.0,
+      "samples": 1393,
+      "to": "O"
+    },
+    {
+      "celltype": "X_LUT6",
+      "delay_ps": 259.0,
+      "from": "ADR5",
+      "min_ps": 235.0,
+      "samples": 4179,
+      "to": "O"
+    },
+    {
+      "celltype": "X_MUX2",
+      "delay_ps": 110.0,
+      "from": "IA",
+      "min_ps": 25.0,
+      "samples": 56,
+      "to": "O"
+    },
+    {
+      "celltype": "X_MUX2",
+      "delay_ps": 84.0,
+      "from": "IB",
+      "min_ps": 27.0,
+      "samples": 56,
+      "to": "O"
+    },
+    {
+      "celltype": "X_MUX2",
+      "delay_ps": 108.0,
+      "from": "SEL",
+      "min_ps": 77.0,
+      "samples": 56,
+      "to": "O"
+    },
+    {
+      "celltype": "X_OBUF",
+      "delay_ps": 2912.0,
+      "from": "I",
+      "min_ps": 2912.0,
+      "samples": 78,
+      "to": "O"
+    },
+    {
+      "celltype": "X_OBUFT",
+      "delay_ps": 2912.0,
+      "from": "CTL",
+      "min_ps": 2912.0,
+      "samples": 4,
+      "to": "O"
+    },
+    {
+      "celltype": "X_OBUFT",
+      "delay_ps": 2912.0,
+      "from": "I",
+      "min_ps": 2912.0,
+      "samples": 4,
+      "to": "O"
+    },
+    {
+      "celltype": "X_PLL_ADV",
+      "delay_ps": 1300.0,
+      "from": "CLKIN2",
+      "min_ps": 1300.0,
+      "samples": 1,
+      "to": "LOCKED"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[0]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[10]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[11]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[12]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[13]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[14]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[15]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[16]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[17]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[18]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[19]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[1]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[20]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[21]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[22]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[23]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[24]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[25]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[26]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[27]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[28]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[29]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[2]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[30]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[31]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[3]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[4]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[5]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[6]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[7]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[8]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOA[9]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOPA[0]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOPA[1]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOPA[2]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 2100.0,
+      "from": "CLKA",
+      "min_ps": 2100.0,
+      "samples": 2,
+      "to": "DOPA[3]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[0]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[10]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[11]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[12]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[13]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[14]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[15]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[16]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[17]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[18]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[19]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[1]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[20]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[21]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[22]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[23]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[24]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[25]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[26]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[27]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[28]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[29]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[2]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[30]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[31]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[3]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[4]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[5]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[6]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[7]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[8]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOA[9]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOPA[0]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOPA[1]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOPA[2]"
+    },
+    {
+      "celltype": "X_RAMB16BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 2,
+      "to": "DOPA[3]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[0]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[1]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[2]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[3]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[4]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[5]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[6]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1800.0,
+      "from": "CLKAWRCLK",
+      "min_ps": 1800.0,
+      "samples": 1,
+      "to": "DOADO[7]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[0]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[1]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[2]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[3]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[4]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[5]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[6]"
+    },
+    {
+      "celltype": "X_RAMB8BWER",
+      "delay_ps": 1550.0,
+      "from": "RSTA",
+      "min_ps": 1550.0,
+      "samples": 1,
+      "to": "DOADO[7]"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 1106.0,
+      "from": "CLK",
+      "min_ps": 989.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 254.0,
+      "from": "RADR0",
+      "min_ps": 234.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 254.0,
+      "from": "RADR1",
+      "min_ps": 234.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 254.0,
+      "from": "RADR2",
+      "min_ps": 234.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 254.0,
+      "from": "RADR3",
+      "min_ps": 234.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD32",
+      "delay_ps": 254.0,
+      "from": "RADR4",
+      "min_ps": 234.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 1106.0,
+      "from": "CLK",
+      "min_ps": 1012.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR0",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR1",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR2",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR3",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR4",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_RAMD64_ADV",
+      "delay_ps": 254.0,
+      "from": "RADR5",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "O"
+    },
+    {
+      "celltype": "X_SFF",
+      "delay_ps": 332.0,
+      "from": "CLK",
+      "min_ps": 332.0,
+      "samples": 7129,
+      "to": "O"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 254.0,
+      "from": "A0",
+      "min_ps": 254.0,
+      "samples": 2,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 254.0,
+      "from": "A1",
+      "min_ps": 254.0,
+      "samples": 2,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 254.0,
+      "from": "A2",
+      "min_ps": 254.0,
+      "samples": 2,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 254.0,
+      "from": "A3",
+      "min_ps": 254.0,
+      "samples": 2,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 1553.0,
+      "from": "CLK",
+      "min_ps": 1495.0,
+      "samples": 2,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC16E",
+      "delay_ps": 682.0,
+      "from": "CLK",
+      "min_ps": 671.0,
+      "samples": 2,
+      "to": "Q15"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 254.0,
+      "from": "A[0]",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 254.0,
+      "from": "A[1]",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 254.0,
+      "from": "A[2]",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 254.0,
+      "from": "A[3]",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 254.0,
+      "from": "A[4]",
+      "min_ps": 254.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 1553.0,
+      "from": "CLK",
+      "min_ps": 1495.0,
+      "samples": 8,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_SRLC32E",
+      "delay_ps": 682.0,
+      "from": "CLK",
+      "min_ps": 671.0,
+      "samples": 8,
+      "to": "Q31"
+    }
+  ],
+  "fit": {
+    "connections": 43073,
+    "mean_delay_ps": 1480.047523970933,
+    "rms_error_ps": 157.34315530409918
+  },
+  "pip_classes": {
+    "CMT_OUT": {
+      "delay_ps": 0.0,
+      "samples": 27
+    },
+    "DBL_EE": {
+      "delay_ps": 396.6,
+      "samples": 4241
+    },
+    "DBL_NE": {
+      "delay_ps": 296.0,
+      "samples": 5227
+    },
+    "DBL_NN": {
+      "delay_ps": 229.8,
+      "samples": 4921
+    },
+    "DBL_NW": {
+      "delay_ps": 312.0,
+      "samples": 4315
+    },
+    "DBL_SE": {
+      "delay_ps": 324.0,
+      "samples": 5478
+    },
+    "DBL_SS": {
+      "delay_ps": 247.0,
+      "samples": 5762
+    },
+    "DBL_SW": {
+      "delay_ps": 300.9,
+      "samples": 5263
+    },
+    "DBL_WW": {
+      "delay_ps": 365.9,
+      "samples": 4117
+    },
+    "HCLK": {
+      "delay_ps": 0.0,
+      "samples": 7156
+    },
+    "HCLK_ROW": {
+      "delay_ps": 592.5,
+      "samples": 7156
+    },
+    "IMUX_CLK": {
+      "delay_ps": 986.4,
+      "samples": 7129
+    },
+    "IMUX_GFAN": {
+      "delay_ps": 172.6,
+      "samples": 1714
+    },
+    "IMUX_LOGICIN": {
+      "delay_ps": 331.9,
+      "samples": 35204
+    },
+    "IMUX_LOGICIN20_BOUNCE": {
+      "delay_ps": 0.0,
+      "samples": 699
+    },
+    "IMUX_LOGICIN21_BOUNCE": {
+      "delay_ps": 3.9,
+      "samples": 302
+    },
+    "IMUX_LOGICIN28_BOUNCE": {
+      "delay_ps": 12.8,
+      "samples": 444
+    },
+    "IMUX_LOGICIN36_BOUNCE": {
+      "delay_ps": 3.9,
+      "samples": 1086
+    },
+    "IMUX_LOGICIN44_BOUNCE": {
+      "delay_ps": 0.0,
+      "samples": 818
+    },
+    "IMUX_LOGICIN52_BOUNCE": {
+      "delay_ps": 0.0,
+      "samples": 355
+    },
+    "IMUX_LOGICIN60_BOUNCE": {
+      "delay_ps": 0.0,
+      "samples": 513
+    },
+    "IMUX_LOGICIN62_BOUNCE": {
+      "delay_ps": 0.0,
+      "samples": 948
+    },
+    "IMUX_SR": {
+      "delay_ps": 367.0,
+      "samples": 545
+    },
+    "OUT": {
+      "delay_ps": 585.7,
+      "samples": 251
+    },
+    "OUT_BEL": {
+      "delay_ps": 0.0,
+      "samples": 1
+    },
+    "QUAD_EE": {
+      "delay_ps": 384.7,
+      "samples": 1109
+    },
+    "QUAD_NE": {
+      "delay_ps": 345.5,
+      "samples": 1755
+    },
+    "QUAD_NN": {
+      "delay_ps": 291.5,
+      "samples": 2374
+    },
+    "QUAD_NW": {
+      "delay_ps": 326.3,
+      "samples": 1471
+    },
+    "QUAD_SE": {
+      "delay_ps": 353.9,
+      "samples": 2576
+    },
+    "QUAD_SS": {
+      "delay_ps": 275.0,
+      "samples": 2996
+    },
+    "QUAD_SW": {
+      "delay_ps": 291.0,
+      "samples": 2047
+    },
+    "QUAD_WW": {
+      "delay_ps": 312.8,
+      "samples": 655
+    },
+    "SITE:AOUT": {
+      "delay_ps": 2.2,
+      "samples": 3461
+    },
+    "SITE:BOUT": {
+      "delay_ps": 4.8,
+      "samples": 2722
+    },
+    "SITE:COUT": {
+      "delay_ps": 23.9,
+      "samples": 2184
+    },
+    "SITE:DOUT": {
+      "delay_ps": 7.5,
+      "samples": 1779
+    },
+    "SITE:FFA": {
+      "delay_ps": 0.0,
+      "samples": 1056
+    },
+    "SITE:FFB": {
+      "delay_ps": 0.0,
+      "samples": 1051
+    },
+    "SITE:FFC": {
+      "delay_ps": 0.0,
+      "samples": 1035
+    },
+    "SITE:FFD": {
+      "delay_ps": 0.0,
+      "samples": 993
+    },
+    "SNG_E": {
+      "delay_ps": 297.8,
+      "samples": 13739
+    },
+    "SNG_N": {
+      "delay_ps": 223.1,
+      "samples": 11562
+    },
+    "SNG_S": {
+      "delay_ps": 224.2,
+      "samples": 11310
+    },
+    "SNG_W": {
+      "delay_ps": 256.0,
+      "samples": 9243
+    },
+    "~FANOUT": {
+      "delay_ps": 0.0,
+      "samples": 37090
+    }
+  },
+  "source": "ISE 14.7 netgen SDF, xc6slx9-2, 85C 1.14V (max delays)"
+}

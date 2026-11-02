@@ -66,6 +66,8 @@ struct OutPip {
     /// The source is used inverted (only possible on some MUX inputs).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     inv: bool,
+    /// Delay class (see s6_export::pip_timing_class).
+    timing_class: String,
     /// Where the pip comes from in prjcombine: [tile slot, bel slot, item index].
     /// Empty for synthesized pips. Kept for the bitstream writer.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -265,7 +267,8 @@ impl TypeBuilder {
         {
             return;
         }
-        self.out.pips.push(OutPip { src, dst, kind, inv, src_ref });
+        let timing_class = s6_export::pip_timing_class(kind, &self.out.wires[dst].name, &src_ref);
+        self.out.pips.push(OutPip { src, dst, kind, inv, timing_class, src_ref });
     }
 }
 

@@ -22,10 +22,11 @@ def main():
     ap.add_argument("--json", required=True, help="exporter output")
     ap.add_argument("--bba", required=True, help="output .bba path")
     ap.add_argument("--constids", help="uarch constids.inc to preload, if any")
+    ap.add_argument("--timing", help="delay model from s6-timing (data/timing-xc6slx9-2.json)")
     args = ap.parse_args()
 
     sys.path.insert(0, path.join(args.nextpnr, "himbaechel"))
-    from himbaechel_dbgen.chip import BEL_FLAG_GLOBAL, Chip, NodeWire, PinType
+    from himbaechel_dbgen.chip import BEL_FLAG_GLOBAL, Chip, ClockEdge, NodeWire, PinType, TimingValue
 
     with open(args.json) as f:
         dev = json.load(f)
@@ -42,8 +43,8 @@ def main():
         for w in tt_json["wires"]:
             tt.create_wire(w["name"], w["kind"], w.get("const_value", ""))
         for p in tt_json["pips"]:
-            # Timing class = item kind for now; real delays are a separate project.
-            tt.create_pip(names[p["src"]], names[p["dst"]], p["kind"])
+            # Delay class: the class of the driven wire, or the slice mux.
+            tt.create_pip(names[p["src"]], names[p["dst"]], p["timing_class"])
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])
             # Slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM (read by the uarch).
@@ -80,6 +81,12 @@ def main():
                 continue
             tile = f"X{io['x']}Y{io['y']}"
             pkg.create_pad(pin["pin"], tile, io["bel"], "", io["bank"])
+
+    if args.timing:
+        sys.path.insert(0, path.dirname(path.abspath(__file__)))
+        import s6_timing
+
+        s6_timing.add_timing(ch, dev, args.timing, TimingValue, ClockEdge)
 
     ch.write_bba(args.bba)
     n_pips = sum(len(t["pips"]) for t in dev["tile_types"])

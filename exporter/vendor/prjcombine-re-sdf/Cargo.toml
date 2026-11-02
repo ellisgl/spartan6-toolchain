@@ -1,0 +1,10 @@
+[package]
+name = "prjcombine-re-sdf"
+version = "0.1.0"
+edition = "2024"
+license = "0BSD OR Apache-2.0"
+description = "prjcombine's SDF parser, vendored with fixes for ISE netgen output"
+
+[dependencies]
+indexmap = "2"
+prjcombine-types = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }

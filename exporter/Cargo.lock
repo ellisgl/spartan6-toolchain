@@ -621,6 +621,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "prjcombine-re-sdf"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "prjcombine-types",
+]
+
+[[package]]
 name = "prjcombine-re-toolchain"
 version = "0.1.0"
 source = "git+https://codeberg.org/prjunnamed/prjcombine.git?rev=2b3317db3799b82b3ef5606438145ba76b9b4485#2b3317db3799b82b3ef5606438145ba76b9b4485"
@@ -1042,6 +1050,7 @@ dependencies = [
  "clap",
  "prjcombine-entity",
  "prjcombine-interconnect",
+ "prjcombine-re-sdf",
  "prjcombine-re-toolchain",
  "prjcombine-re-xilinx-geom",
  "prjcombine-re-xilinx-ise-dump",

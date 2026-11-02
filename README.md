@@ -136,6 +136,47 @@ openFPGALoader -b mojov3 build/cylon/design.bin       # RAM
 openFPGALoader -b mojov3 -f build/cylon/design.bin    # flash, verified
 ```
 
+## Delay model (`exporter/src/bin/s6-timing.rs`, `gen/s6_timing.py`)
+
+prjcombine has no Spartan-6 timing, so the delays come from ISE: for each
+test design placed and routed by nextpnr, ISE's `netgen -sim` writes an SDF
+file for the same placement and routing (from the NCD that `make ise-check`
+builds). In it every cell input carries the routing delay from its driver
+(netgen puts FF inputs' routing on `NlwBufferBlock_*` buffers). `s6-timing`
+walks our route back from each input and fits one delay per pip class (the
+class of the driven wire, e.g. `SNG_W`, `QUAD_NN`, `IMUX_LOGICIN`, or the
+slice mux) by non-negative least squares, and collects ISE's cell delays and
+setup/hold checks. The result, `data/timing-xc6slx9-2.json`, is committed;
+`make timing-data` regenerates it (needs ISE).
+
+`gen/s6_timing.py` puts it in the chip database: pip class delays, and cell
+timing for LUTs, FFs, CARRY4, wide muxes, RAM/SRL LUTs, BRAM, BUFGMUX and
+three DSP48A1 variants by pipeline registers (the uarch picks one per cell).
+nextpnr then places and routes timing-driven and reports Fmax.
+
+Fit: 43,073 connections from 9 designs, 157 ps rms error (mean connection
+delay 1.48 ns). Against ISE's own analyser (`trce`) on the same placement
+and routing (`tools/timing-compare.py`):
+
+| Design | nextpnr | ISE trce | Error |
+|---|---|---|---|
+| fill | 13.02 ns | 13.00 ns | +0.2% |
+| bram | 10.22 ns | 10.12 ns | +0.9% |
+| dsp | 10.16 ns | 10.30 ns | -1.4% |
+| rom | 8.95 ns | 8.79 ns | +1.8% |
+| uart_echo | 7.35 ns | 7.54 ns | -2.5% |
+| lutram | 10.14 ns | 9.13 ns | +11.1% |
+| alu (DSPs) | 17.60 ns | 14.62 ns | +20.4% |
+
+DSP clock-to-out is taken as the slowest measured for its register setup,
+so designs whose critical path starts in a DSP come out pessimistic.
+
+prjcombine's SDF parser needed a few additions for ISE's output (operating
+conditions, `PATHPULSE`, `RECREM`, single-value delays, escaped names and
+bus ranges). The crate is vendored with those fixes in
+`exporter/vendor/prjcombine-re-sdf` (see its README); the problems are
+written up for upstream in `docs/prjcombine-sdf-issue.md`.
+
 ## Bitstream writer (`exporter/src/bin/s6-bitgen/`)
 
 - **`write.rs`:** serializes a prjcombine `Bitstream` into ISE's exact
@@ -297,6 +338,8 @@ primary source is kept, as an always-on pip) and factory-test wires
 - **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
 - **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
   BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV fed from the BUFG on CLKIN2.
+- **Timing:** the speed grade comes from the device name (default -2);
+  DSP cells get a timing variant by pipeline registers (`prePlace`).
 - **Distributed RAM / SRL (`lutram.cc`):** SLICEM LUTs as RAM64X1S (up to four
   per slice sharing the address, one always the D LUT, whose inputs are the
   write address), RAM32M (whole slice) and SRLC32E/SRL16E (any SLICEM LUT).
@@ -344,7 +387,7 @@ Packer limits for now:
   driven dynamically.
 - **Untested:** SRL initial values other than 0, RAM32M initial values, PLL
   fed through CLKIN1 (BUFIO2) rather than CLKIN2.
-- **No timing model:** unit delays only.
+- **Timing:** from the delay model below; DSP paths are pessimistic.
 - **Constant CE/SR:** CE tied high and SR tied low are disconnected in the
   packer (slice defaults), since ISE treats GND -> SR as an excluded arc.
 - **No OUTMUX=O6:** the exporter leaves out the OUTMUX=O6 slice option. It
@@ -355,7 +398,8 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **Timing:** no delay data. prjcombine has none for Spartan-6; ISE's
-  speed files (or `trce` on our designs) would be the source.
+- **Timing coverage:** I/O, DCM/PLL and the clock spines use a typical
+  routing delay; the delay model was measured for -2 only (the other speed
+  grades get the same numbers).
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
   future bitstream writer. The `.bba` doesn't carry it.

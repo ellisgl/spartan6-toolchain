@@ -132,13 +132,13 @@ pub fn expand(
     // SLICEM: shared write enable, per-letter DI1 and shift cascade (MC31).
     let (we_m, di1, mc31) = if has_ram {
         let we_m = tb.pseudo_wire(format!("{prefix}.WE_M"));
+        // Only the dedicated WE pin: through the CE pin, the write enable
+        // would also become the CE of the slice's FFs (ISE enables CE for
+        // them whenever the pin is used).
         for val in enum_opts(db, bcls, bel, "MUX_WE") {
-            let src = match val.as_str() {
-                "WE" => pin("WE"),
-                "CE" => ce,
-                other => panic!("unexpected MUX_WE option {other}"),
-            };
-            tb.pip(src, we_m, "SITE", false, vec!["SITE".into(), prefix.into(), "MUX_WE".into(), val]);
+            if val == "WE" {
+                tb.pip(pin("WE"), we_m, "SITE", false, vec!["SITE".into(), prefix.into(), "MUX_WE".into(), val]);
+            }
         }
         let di1: Vec<usize> = LETTERS
             .iter()

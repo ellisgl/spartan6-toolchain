@@ -41,6 +41,19 @@ pub fn parse_wire_name(egrid: &ExpandedGrid, cell: CellCoord, name: &str) -> Opt
     Some(cell.wire(wslot))
 }
 
+/// Delay class of a pip, shared by the exporter (chip database) and s6-timing
+/// (the delay fit): slice muxes by their attribute ("SITE:FFA"), routing pips
+/// by the class of the wire they drive (its name without the "CLASS.CELL[n]."
+/// prefix, bus index and trailing digits: SNG_W0[3] -> SNG_W).
+pub fn pip_timing_class(kind: &str, dst_name: &str, src_ref: &[String]) -> String {
+    if kind == "SITE" {
+        return format!("SITE:{}", src_ref[2].trim_start_matches("MUX_"));
+    }
+    let n = dst_name.rsplit('.').next().unwrap_or(dst_name);
+    let n = n.split('[').next().unwrap_or(n);
+    n.trim_end_matches(|c: char| c.is_ascii_digit()).to_string()
+}
+
 /// Bel pin name: bus bits are written without brackets ("ADDRA5"), as ISE
 /// names them. nextpnr's JSON writer regroups "X[i]" ports into buses and
 /// loses where a partly used bus starts, so brackets can't survive a
