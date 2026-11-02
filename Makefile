@@ -82,9 +82,9 @@ $(BUILD)/blinky/synth.json: tests/blinky/blinky.v
 	@mkdir -p $(dir $@)
 	$(YOSYS) -q -l $(BUILD)/blinky/yosys.log -p "synth_xilinx -family xc6s -top blinky $(SYNTH_FLAGS) -json $@" $<
 
-$(BUILD)/blinky/routed.json: $(BUILD)/blinky/synth.json tests/blinky/mojo.ucf $(CHIPDB) $(NPNR_BIN)
+$(BUILD)/blinky/routed.json: $(BUILD)/blinky/synth.json tests/mojo_v3.ucf $(CHIPDB) $(NPNR_BIN)
 	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
-		-o ucf=tests/blinky/mojo.ucf --write $@ --log $(BUILD)/blinky/nextpnr.log
+		-o ucf=tests/mojo_v3.ucf --write $@ --log $(BUILD)/blinky/nextpnr.log
 
 blinky: $(BUILD)/blinky/routed.json
 

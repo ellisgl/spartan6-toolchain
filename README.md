@@ -66,6 +66,22 @@ installs into a host directory, and a small container (`docker/ise`, Ubuntu
    tools/ise.sh bitgen -w design.ncd
    ```
 
+`tools/ise.sh` hands the container a trimmed `/proc/cpuinfo`. ISE's FlexNet
+licensing code (used by map, par and bitgen) overflows on the long CPU flags
+line of modern CPUs and crashes.
+
+Reference build and loading onto the Mojo V3, verified on hardware with
+`tests/cylon`:
+
+```
+tools/ise-build.sh cylon tests/mojo_v3.ucf build/cylon-ise tests/cylon/cylon.v
+tools/mojo-load.py build/cylon-ise/cylon.bin            # RAM (lost on power cycle)
+tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
+```
+
+`mojo-load.py` speaks the official loader's serial protocol to the Mojo's
+AVR (`/dev/ttyACM0`; needs membership of `dialout`).
+
 ## How prjcombine maps onto himbaechel
 
 | prjcombine | himbaechel |
