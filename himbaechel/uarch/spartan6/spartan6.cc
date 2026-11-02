@@ -249,7 +249,7 @@ void Spartan6Impl::prePlace()
         fi.ce = ci->getPort(id_CE);
         fi.sr = ci->getPort(id_SR);
         IdString kind = ctx->id(ci->params.at(id_FF_TYPE).as_string());
-        fi.async = kind.in(id_FDCE, id_FDPE);
+        fi.async = kind.in(id_FDCE, id_FDPE, id_LDCE, id_LDPE);
         fi.latch = kind.in(id_LDCE, id_LDPE);
         fi.clk_inv = clk_inverted(ci);
     }

@@ -243,6 +243,28 @@ void Spartan6Impl::pack_logic()
                 rename_if(ci, in_ports[i], a_ports[i]);
             ci->type = id_SLICE_LUT;
             luts++;
+        } else if (ci->type.in(id_LDCE, id_LDPE)) {
+            // Latch: a slice FF in latch mode (FF_LATCH, slice-wide), gate on
+            // the clock pin, gate enable on CE, CLR/PRE asynchronous on SR.
+            // The slice latch is transparent while its (inverted-or-not)
+            // clock is low, so an active-high gate inverts the clock: ISE
+            // writes CLKINV = CLK_B for LDCE.
+            bool g_inv = ci->params.count(id_IS_G_INVERTED) && ci->params.at(id_IS_G_INVERTED).as_int64() != 0;
+            ci->params.erase(id_IS_G_INVERTED);
+            if (!g_inv)
+                ci->params[id_CLK_INV] = Property(1, 1);
+            ci->params[id_FF_TYPE] = ci->type.str(ctx);
+            rename_if(ci, id_G, id_CK);
+            rename_if(ci, id_GE, id_CE);
+            for (auto sr : {id_CLR, id_PRE})
+                rename_if(ci, sr, id_SR);
+            NetInfo *ce = ci->getPort(id_CE), *sr = ci->getPort(id_SR);
+            if (ce && ce->constant_value == id_VCC)
+                ci->disconnectPort(id_CE);
+            if (sr && sr->constant_value == id_GND)
+                ci->disconnectPort(id_SR);
+            ci->type = id_SLICE_FF;
+            ffs++;
         } else if (ci->type.in(id_FDRE, id_FDSE, id_FDCE, id_FDPE) ||
                    ci->type.in(ctx->id("FDRE_1"), ctx->id("FDSE_1"), ctx->id("FDCE_1"), ctx->id("FDPE_1"))) {
             // FDxE_1 and IS_C_INVERTED: falling edge. The slice inverts its
@@ -273,8 +295,6 @@ void Spartan6Impl::pack_logic()
                 ci->disconnectPort(id_SR);
             ci->type = id_SLICE_FF;
             ffs++;
-        } else if (ci->type.in(id_LDCE, id_LDPE)) {
-            log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
         }
     }
     log_info("Packed %d LUTs and %d FFs.\n", luts, ffs);
@@ -426,7 +446,11 @@ void Spartan6Impl::pack_lut_pairs()
         pairs++;
         // 5FF: D is hardwired to O5 and Q leaves on <L>MUX, so it can only
         // take a FF that is the LUT5 half's sole load.
-        if (CellInfo *ff = sole_ff_load(best)) {
+        // Latches can't be 5FFs (those elements are flip-flops only).
+        CellInfo *ff = sole_ff_load(best);
+        if (ff && ff->params.at(id_FF_TYPE).as_string().rfind("LD", 0) == 0)
+            ff = nullptr;
+        if (ff) {
             ff->type = id_SLICE_FF5;
             a->constr_children.push_back(ff);
             ff->cluster = a->name;
