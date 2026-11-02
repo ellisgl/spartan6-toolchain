@@ -60,7 +60,7 @@ $(DB):
 	curl -fsSL -o $@.tmp https://codeberg.org/prjunnamed/prjcombine/raw/commit/$(PRJCOMBINE_REV)/databases/spartan6.zstd
 	mv $@.tmp $@
 
-$(EXPORTER): exporter/Cargo.toml $(wildcard exporter/src/*.rs)
+$(EXPORTER): exporter/Cargo.toml $(shell find exporter/src -name "*.rs")
 	CARGO_TARGET_DIR=$(abspath $(BUILD)/target) cargo build --release --manifest-path exporter/Cargo.toml
 
 $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)

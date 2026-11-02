@@ -60,7 +60,7 @@ This is where the Spartan-6-specific logic lives:
 
 ### 7. Bitstream writer
 
-> **Status (Nov 1):** working (`s6-bitgen`). Its output is byte-identical to ISE's bitgen for blinky, cylon and uart_echo, using prjcombine's bit database, the bitstream module's frame layout and our own packet writer. ISE is no longer needed to build bitstreams. A UART echo design built entirely with the open flow passes an automatic hardware test on the Mojo V3.
+> **Status (Nov 1):** working (`s6-bitgen`). Its output is byte-identical to ISE's bitgen for blinky, cylon, uart_echo and tristate, using prjcombine's bit database, the bitstream module's frame layout and our own packet writer. ISE is no longer needed to build bitstreams. A UART echo design built entirely with the open flow passes an automatic hardware test on the Mojo V3. **Nov 2:** tristate outputs, bidirectional pins and pull-ups/pull-downs added; `tests/tristate` checks driven, pulled-up and pulled-down pins on hardware.
 
 - Take the routed design, set the config bits from the prjcombine bitstream database, and lay them out into frames.
 - Also handle the defaults for unused tiles and IOBs (pulls, tristates), GSR, FF INIT values, and STARTUP\_SPARTAN6 settings, then the header, packets, and CRC.

@@ -19,10 +19,10 @@ nextpnr himbaechel uarch built on prjcombine. The plan is in
   `XDL_MODE=pins` writes pins only and lets ISE route instead (stage 1).
 - **Bitstream writer (§7):** working. `s6-bitgen` generates the bitstream
   from nextpnr's routed design using prjcombine's bit database. Its output is
-  byte-identical to ISE's bitgen for blinky, cylon and uart_echo. The
-  default flow (`make bit`) uses no ISE at all. `tests/uart_echo`, built this
-  way, passes an automatic hardware test over the Mojo's USB serial port
-  (`tools/uart-test.py`).
+  byte-identical to ISE's bitgen for blinky, cylon, uart_echo and tristate.
+  The default flow (`make bit`) uses no ISE at all. `tests/uart_echo` and
+  `tests/tristate`, built this way, pass automatic hardware tests over the
+  Mojo's USB serial port (`tools/uart-test.py`, `tools/tristate-test.py`).
 
 ## Pipeline
 
@@ -46,6 +46,7 @@ make bit       TEST=cylon   # + s6-bitgen (no ISE)   -> build/cylon/design.bin
 make load      TEST=cylon   # + load into the Mojo's FPGA RAM
 make ise-check TEST=cylon   # ISE cross-check: XDL -> drc -> bitgen, must be byte-identical
 tools/uart-test.py          # hardware check for TEST=uart_echo (after make load)
+tools/tristate-test.py      # hardware check for TEST=tristate (P50/P51 left unconnected)
 ```
 
 Only `make ise-check` needs ISE (see below). Its first run also dumps ISE's
@@ -124,8 +125,9 @@ Commands:
   every differing bit with its meaning.
 - **`s6-bitgen bits`:** lists a bitstream's set bits.
 
-Supported so far: LUT6s, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs and outputs
-(no tristate), BUFG and global clock routing. Only LVTTL has been verified
+Supported so far: LUT6s, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs, outputs,
+tristate outputs (OBUFT) and bidirectional pins (IOBUF), PULLUP/PULLDOWN,
+BUFG and global clock routing. Only LVTTL has been verified
 against ISE. Not supported yet: everything the packer doesn't support, plus
 `.bit` file headers and bitgen options other than the defaults.
 
@@ -257,8 +259,6 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **Tristate outputs:** needed to tristate `avr_rx` (and the SPI lines) until
-  the Mojo's AVR is ready, as the Mojo base project does.
 - **Excluded ISE arcs:** the chipdb still contains arcs ISE marks as excluded
   (e.g. GND -> SR). The rawdump has the flags; the exporter could drop them.
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the

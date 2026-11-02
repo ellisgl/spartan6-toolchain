@@ -328,8 +328,11 @@ impl<'a> Gen<'a> {
                         self.set_bits(ologic, "FFO_RANK1_BYPASS", &[true]);
                         self.set_enum(ologic, "MUX_O", "D1");
                     }
-                    if c.conns.contains_key("T") {
-                        return Err(format!("{}: tristate outputs not supported yet", c.name));
+                    // ... and T1 straight to the output enable (tristate when high).
+                    if nets_uses(c, "T") {
+                        self.set_bits(ologic, "ENABLE", &[true]);
+                        self.set_bits(ologic, "FFT_RANK1_BYPASS", &[true]);
+                        self.set_enum(ologic, "MUX_T", "T1");
                     }
                 } else {
                     // Input only: output drivers off.
@@ -347,6 +350,9 @@ impl<'a> Gen<'a> {
                         // No input delay (the bit is stored inverted).
                         self.set_bits(ilogic, "I_DELAY_ENABLE", &[false]);
                     }
+                }
+                if let Some(pull) = c.pull() {
+                    self.set_enum(bcrd, "PULL", pull);
                 }
                 let _ = nets;
             }

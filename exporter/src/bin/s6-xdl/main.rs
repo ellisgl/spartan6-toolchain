@@ -525,6 +525,9 @@ fn main() {
                 let mut cfg: Vec<Vec<String>> = vec![vec!["PAD".into(), inst.clone(), "".into()]];
                 let input = matches!(io_type, "IBUF" | "IBUFG" | "IOBUF");
                 let output = matches!(io_type, "OBUF" | "OBUFT" | "IOBUF");
+                if let Some(pull) = c.pull() {
+                    cfg.push(vec!["PULLTYPE".into(), "".into(), pull.into()]);
+                }
                 if input {
                     cfg.push(vec!["BYPASS_MUX".into(), "".into(), "I".into()]);
                     cfg.push(vec!["IMUX".into(), format!("{inst}.IMUX"), "I".into()]);

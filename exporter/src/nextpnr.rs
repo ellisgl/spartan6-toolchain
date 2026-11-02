@@ -16,6 +16,19 @@ pub struct NCell {
     pub bel: (usize, usize, String),
 }
 
+impl NCell {
+    /// IOB pull resistor from the PULLUP/PULLDOWN constraint, as ISE names it.
+    pub fn pull(&self) -> Option<&'static str> {
+        let set = |k: &str| self.params.get(k).is_some_and(|v| !matches!(v.trim_start_matches('0'), "" | "FALSE"));
+        match (set("PULLUP"), set("PULLDOWN")) {
+            (true, true) => panic!("{}: both PULLUP and PULLDOWN set", self.name),
+            (true, false) => Some("PULLUP"),
+            (false, true) => Some("PULLDOWN"),
+            (false, false) => None,
+        }
+    }
+}
+
 pub struct NNet {
     pub name: String,
     pub driver: Option<(usize, String)>,

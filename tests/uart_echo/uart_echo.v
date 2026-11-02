@@ -5,10 +5,7 @@
 // FPGA RX on avr_tx (P55), FPGA TX on avr_rx (P59). The AVR raises cclk (P70)
 // once it is ready; the FPGA waits for cclk to stay high ~1000 clocks before
 // transmitting (as the Mojo base project's cclk_detector does).
-//
-// Unlike the base project, avr_rx is driven (idle high) instead of tristated
-// until ready, because tristate outputs are not supported yet. The AVR side
-// of that line is a UART input, so there is no contention.
+// Until then avr_rx is tristated, as in the base project.
 module uart_echo (
     input  wire       clk,     // 50 MHz
     input  wire       rst_n,
@@ -107,6 +104,6 @@ module uart_echo (
         end
     end
 
-    assign avr_rx = tx_shift[0];
+    assign avr_rx = ready ? tx_shift[0] : 1'bz;
     assign led = rx_data;
 endmodule
