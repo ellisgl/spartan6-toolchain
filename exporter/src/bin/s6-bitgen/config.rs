@@ -368,6 +368,12 @@ impl<'a> Gen<'a> {
                 }
                 let mode = c.params.get("RAM_MODE").map(String::as_str).unwrap_or("RAM64");
                 self.set_enum(bcrd, &format!("{l}RAMMODE"), mode);
+                // 7th/8th write address bit from CX/BX (RAM128X1S, RAM256).
+                for wa in ["WA7", "WA8"] {
+                    if c.conns.contains_key(wa) {
+                        self.set_bits(bcrd, &format!("{wa}USED"), &[true]);
+                    }
+                }
                 let init: Vec<bool> = c.params.get("INIT").map(|v| v.chars().rev().map(|ch| ch == '1').collect()).unwrap_or_default();
                 let bit = |i: usize| init.get(i).copied().unwrap_or(false);
                 // SRLs read with A1 (and for SRL16, A6) high: each bit is

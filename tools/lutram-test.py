@@ -26,6 +26,7 @@ def main():
     m32 = [(91 * i + 5) & 0xFF for i in range(32)]
     sr = [(53 * i + 7) & 0xFF for i in range(24)]
     md = [(29 * i + 3) & 0xFF for i in range(64)]
+    mb = [(7 * i + 1) & 3 for i in range(128)]
     raddr = [0]
     pat = 0xA5C3
     bad = 0
@@ -42,19 +43,20 @@ def main():
             m64[a % 64] = d
             m32[a % 32] = d
             md[a % 64] = d
+            mb[a % 128] = d & 3
 
         def read(a):
             """(got, want) for 'R' a; md comes from the previous R's address."""
             port.write(bytes([ord("R"), a]))
-            got = port.read(3)
-            want = bytes([m64[a % 64], m32[a % 32], md[raddr[0]]])
+            got = port.read(4)
+            want = bytes([m64[a % 64], m32[a % 32], md[raddr[0]], mb[a % 128]])
             raddr[0] = a % 64
             return got, want
 
         # Initial contents: read every address, then shift the initial
         # shift register contents out.
         init_bad = 0
-        for a in list(range(64)) + [0]:
+        for a in list(range(128)) + [0]:
             got, want = read(a)
             if got != want:
                 init_bad += 1

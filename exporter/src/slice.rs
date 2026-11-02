@@ -152,10 +152,11 @@ pub fn expand(
             for val in enum_opts(db, bcls, bel, &attr) {
                 let srcs = match val.as_str() {
                     v if v == format!("{x}X") => vec![pin(&format!("{x}X"))],
-                    // ALT also carries the letter above's data (BDI1 / DX),
-                    // but ISE's DRC rejects that use in our XDL; only the
-                    // shift cascade is offered (the placer counts DI1 as
-                    // using the letter's own bypass pin).
+                    // ALT also carries the letter above's data (BDI1 / DX).
+                    // Offered for C only (DX; XDL CDI1MUX::DX), which
+                    // RAM128X1S needs: CX is its 7th address bit there.
+                    // Otherwise only the shift cascade.
+                    "ALT" if x == 'C' => vec![mc31[li + 1], pin("DX")],
                     "ALT" => vec![mc31[li + 1]],
                     other => panic!("unexpected {attr} option {other}"),
                 };

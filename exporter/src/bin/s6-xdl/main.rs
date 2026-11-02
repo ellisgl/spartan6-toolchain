@@ -473,12 +473,22 @@ fn main() {
                         s.set(&format!("{l}5RAMMODE"), &["", "SPRAM32"]);
                     }
                     s.set("CLKINV", &["", if clk_inv(c) { "CLK_B" } else { "CLK" }]);
+                    for wa in ["WA7", "WA8"] {
+                        if c.conns.contains_key(wa) {
+                            s.set(&format!("{wa}USED"), &["", "0"]);
+                        }
+                    }
                     for (port, _) in &c.conns {
                         let (pins, output): (Vec<String>, bool) = match port.as_str() {
                             p if p.len() == 2 && p.starts_with('A') => (vec![format!("{l}{}", &p[1..])], false),
+                            // WA1..WA6 are the D LUT's inputs, WA7/WA8 the CX/BX pins.
+                            "WA7" => (vec!["CX".into()], false),
+                            "WA8" => (vec!["BX".into()], false),
                             p if p.starts_with("WA") && p.len() == 3 => (vec![format!("D{}", &p[2..])], false),
                             // Always the letter's own bypass pin (the chip database
                             // offers ALT only for shift cascades).
+                            // The C LUT can also take DX (CDI1MUX::DX, RAM128X1S).
+                            "DI1" if l == 'C' => (vec!["CX".into(), "DX".into()], false),
                             "DI1" => (vec![format!("{l}X")], false),
                             "DI2" => (vec![format!("{l}I")], false),
                             "WE" => (vec!["WE".into()], false), // only the WE pin (CE would gate the FFs)
@@ -1374,7 +1384,10 @@ fn main() {
             } else if attr == "COUTUSED" {
                 ("COUTUSED".into(), val)
             } else if attr.starts_with("MUX_") && attr.ends_with("DI1") {
-                (format!("{}DI1MUX", l(&attr, "MUX_")), val)
+                // ISE names the ALT source: DX for the C LUT (the only ALT
+                // use the chip database offers outside shift cascades).
+                let v = if attr == "MUX_CDI1" && val == "ALT" { "DX".to_string() } else { val };
+                (format!("{}DI1MUX", l(&attr, "MUX_")), v)
             } else if attr == "MUX_WE" {
                 ("WEMUX".into(), val)
             } else {
