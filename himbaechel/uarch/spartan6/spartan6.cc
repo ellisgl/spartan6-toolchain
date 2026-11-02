@@ -16,6 +16,7 @@
  *  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <cctype>
 #include <regex>
 
 #include "himbaechel_api.h"
@@ -106,10 +107,31 @@ bool Spartan6Impl::lut_input_unused(const CellInfo *cell, IdString port) const
     return false;
 }
 
+IdString Spartan6Impl::dsp_timing_pin(IdString port) const
+{
+    const std::string &s = port.str(ctx);
+    size_t n = s.size();
+    while (n > 0 && std::isdigit(static_cast<unsigned char>(s[n - 1])))
+        n--;
+    if (n == s.size() || n == 0)
+        return port;
+    std::string bus = s.substr(0, n);
+    if (bus == "M")
+        bus = "P";
+    if (bus != "A" && bus != "B" && bus != "C" && bus != "D" && bus != "OPMODE" && bus != "P")
+        return port;
+    return ctx->id(bus + "0");
+}
+
 bool Spartan6Impl::getCellDelay(const CellInfo *cell, IdString fromPort, IdString toPort, DelayQuad &delay) const
 {
     if (lut_input_unused(cell, fromPort))
         return false;
+    if (cell->type == id_DSP) {
+        if (cell->timing_index == -1)
+            return false;
+        return ctx->lookup_cell_delay(cell->timing_index, dsp_timing_pin(fromPort), dsp_timing_pin(toPort), delay);
+    }
     return HimbaechelAPI::getCellDelay(cell, fromPort, toPort, delay);
 }
 
@@ -119,7 +141,27 @@ TimingPortClass Spartan6Impl::getPortTimingClass(const CellInfo *cell, IdString 
         clockInfoCount = 0;
         return TMG_IGNORE;
     }
+    if (cell->type == id_DSP) {
+        clockInfoCount = 0;
+        if (cell->timing_index == -1)
+            return TMG_IGNORE;
+        IdString pin = dsp_timing_pin(port);
+        auto type = ctx->lookup_port_tmg_type(cell->timing_index, pin, cell->ports.at(port).type);
+        if (type == TMG_REGISTER_INPUT || type == TMG_REGISTER_OUTPUT) {
+            auto arcs = ctx->lookup_cell_seq_timings(cell->timing_index, pin);
+            if (arcs)
+                clockInfoCount = arcs->ssize();
+        }
+        return type;
+    }
     return HimbaechelAPI::getPortTimingClass(cell, port, clockInfoCount);
+}
+
+TimingClockingInfo Spartan6Impl::getPortClockingInfo(const CellInfo *cell, IdString port, int index) const
+{
+    if (cell->type == id_DSP)
+        return ctx->get_port_clocking_info_default(cell, dsp_timing_pin(port), index);
+    return HimbaechelAPI::getPortClockingInfo(cell, port, index);
 }
 
 void Spartan6Impl::prePlace()
@@ -142,8 +184,10 @@ void Spartan6Impl::prePlace()
                 }
         lut_used_inputs.at(ci->flat_index) = used;
     }
-    // DSP timing depends on its pipeline registers: pick the variant from
-    // the chip database (DSP_P, DSP_M or DSP_IN).
+    // DSP timing depends on its pipeline registers: pick the variant for
+    // this configuration, DSP_<registered groups in the order A B C D M P
+    // O(PMODE)> or DSP_NONE, with _<hex> for a constant OPMODE that was
+    // measured (see gen/s6_timing.py).
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
         if (ci->type != id_DSP || !ctx->speed_grade)
@@ -152,8 +196,41 @@ void Spartan6Impl::prePlace()
             auto it = ci->params.find(ctx->id(k));
             return it != ci->params.end() && it->second.str.find('1') != std::string::npos;
         };
-        const char *variant = on("PREG") ? "DSP_P" : on("MREG") ? "DSP_M" : "DSP_IN";
-        ci->timing_index = ctx->get_cell_timing_idx(ctx->id(variant));
+        std::string variant = "DSP_";
+        if (on("A0REG") || on("A1REG"))
+            variant += 'A';
+        if (on("B0REG") || on("B1REG"))
+            variant += 'B';
+        if (on("CREG"))
+            variant += 'C';
+        if (on("DREG"))
+            variant += 'D';
+        if (on("MREG"))
+            variant += 'M';
+        if (on("PREG"))
+            variant += 'P';
+        if (on("OPMODEREG"))
+            variant += 'O';
+        if (variant == "DSP_")
+            variant += "NONE";
+        int opmode = 0;
+        bool constant = true;
+        for (int i = 0; i < 8; i++) {
+            const NetInfo *n = ci->getPort(ctx->idf("OPMODE%d", i));
+            if (n == nullptr || n->constant_value == id_GND)
+                continue;
+            if (n->constant_value == id_VCC)
+                opmode |= 1 << i;
+            else
+                constant = false;
+        }
+        ci->timing_index = -1;
+        if (constant)
+            ci->timing_index = ctx->get_cell_timing_idx(ctx->id(variant + stringf("_%02x", opmode)));
+        if (ci->timing_index == -1)
+            ci->timing_index = ctx->get_cell_timing_idx(ctx->id(variant));
+        if (ci->timing_index == -1)
+            log_warning("DSP %s: no timing for configuration %s\n", ci->name.c_str(ctx), variant.c_str());
     }
     ff_info.assign(ctx->cells.size(), FFInfo());
     for (auto &cell : ctx->cells) {
