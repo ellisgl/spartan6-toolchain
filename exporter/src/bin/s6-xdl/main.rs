@@ -473,9 +473,9 @@ fn main() {
                         let (pins, output): (Vec<String>, bool) = match port.as_str() {
                             p if p.len() == 2 && p.starts_with('A') => (vec![format!("{l}{}", &p[1..])], false),
                             p if p.starts_with("WA") && p.len() == 3 => (vec![format!("D{}", &p[2..])], false),
-                            // Own bypass pin, or through the ALT chain: DX (B, C)
-                            // or the letter above's pin (A via BDI1).
-                            "DI1" => (vec![format!("{l}X"), "DX".into(), "CX".into(), "BX".into()], false),
+                            // Always the letter's own bypass pin (the chip database
+                            // offers ALT only for shift cascades).
+                            "DI1" => (vec![format!("{l}X")], false),
                             "DI2" => (vec![format!("{l}I")], false),
                             "WE" => (vec!["WE".into(), "CE".into()], false),
                             "CLK" => (vec!["CLK".into()], false),

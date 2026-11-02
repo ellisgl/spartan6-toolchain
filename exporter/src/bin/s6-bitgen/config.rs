@@ -70,8 +70,8 @@ pub struct Gen<'a> {
     /// PairMux items in use: one setting drives two wires, so the sources of
     /// both are collected first, (tile, item index) -> [source per output].
     pair_muxes: HashMap<(TileCoord, prjcombine_interconnect::db::BelSlotId, usize), [Option<prjcombine_interconnect::db::TileWireCoord>; 2]>,
-    /// A DCM is used (changes the CMT regulators' REG_BG everywhere).
-    dcm_used: bool,
+    /// A DCM or PLL is used (changes REG_BG in every DCM tile's regulator).
+    cmt_used: bool,
 }
 
 impl<'a> Gen<'a> {
@@ -80,7 +80,7 @@ impl<'a> Gen<'a> {
         for &(r, v) in DEFAULT_REGS {
             bs.regs.insert(r, v);
         }
-        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new(), fixup: false, pair_muxes: HashMap::new(), dcm_used: false }
+        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new(), fixup: false, pair_muxes: HashMap::new(), cmt_used: false }
     }
 
     fn set_pos(&mut self, pos: BitPos, v: bool) {
@@ -697,7 +697,7 @@ impl<'a> Gen<'a> {
                 // The CMT's voltage regulator, in this DCM's tile.
                 let vreg = cell.bel(self.slot("CMT_VREG"));
                 self.set_raw_num(vreg, "REG_REG", 0b1_0100_0011);
-                self.dcm_used = true;
+                self.cmt_used = true;
             }
             "PLL" => {
                 // Counter for divide d: high/low times, odd-divide edge, bypass at 1.
@@ -760,6 +760,7 @@ impl<'a> Gen<'a> {
                 self.set_raw_bits(bcrd, "PLL_EN_CNTRL", &raw);
                 // Unused SKEWCLKIN inputs: mux defaults.
                 let tcrd = self.edev.bel_tile(bcrd);
+                self.cmt_used = true;
                 self.set_mux_bits_raw(tcrd, "OMUX_PLL_SKEWCLKIN1", &[1, 2]);
                 self.set_mux_bits_raw(tcrd, "OMUX_PLL_SKEWCLKIN2", &[1, 2]);
             }
@@ -784,8 +785,8 @@ impl<'a> Gen<'a> {
                 self.set_bits(b, f, &[true]);
             }
         }
-        // With a DCM in use, every DCM tile's regulator gets this REG_BG.
-        if self.dcm_used {
+        // With a DCM or PLL in use, every DCM tile's regulator gets this REG_BG.
+        if self.cmt_used {
             for b in self.all_bels("CMT_VREG") {
                 let tcrd = self.edev.bel_tile(b);
                 if self.int.tile_classes[self.edev[tcrd].class].name == "CMT_DCM" {

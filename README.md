@@ -61,6 +61,7 @@ talks to the Mojo over its USB serial port):
 | `dsp` | `tools/dsp-test.py` | DSP48A1 multiply and multiply-accumulate |
 | `clocks`, `clocks2` | `tools/clocks-test.py [--config 2]` | DCM_SP, PLL_BASE frequencies |
 | `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, SRLC32E, SRL16E |
+| `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
 5FFs. Shared UART helpers are in `tests/common/uart.v` (they honour the
@@ -160,16 +161,31 @@ and routing (`tools/timing-compare.py`):
 
 | Design | nextpnr | ISE trce | Error |
 |---|---|---|---|
-| fill | 13.02 ns | 13.00 ns | +0.2% |
-| bram | 10.22 ns | 10.12 ns | +0.9% |
-| dsp | 10.16 ns | 10.30 ns | -1.4% |
-| rom | 8.95 ns | 8.79 ns | +1.8% |
-| uart_echo | 7.35 ns | 7.54 ns | -2.5% |
-| lutram | 10.14 ns | 9.13 ns | +11.1% |
-| alu (DSPs) | 17.60 ns | 14.62 ns | +20.4% |
+| uart_echo | 7.13 ns | 7.16 ns | -0.4% |
+| rom | 6.21 ns | 6.26 ns | -0.9% |
+| lutram | 8.05 ns | 7.94 ns | +1.3% |
+| speed | 9.73 ns | 9.36 ns | +4.0% |
+| dsp | 8.15 ns | 8.81 ns | -7.6% |
+| fill | 10.09 ns | 10.98 ns | -8.1% |
+| bram | 9.30 ns | 8.40 ns | +10.8% |
+| alu (DSPs) | 15.99 ns | 13.35 ns | +19.8% |
 
 DSP clock-to-out is taken as the slowest measured for its register setup,
 so designs whose critical path starts in a DSP come out pessimistic.
+
+LUT inputs a table doesn't depend on get no timing arc (the uarch overrides
+`getCellDelay`/`getPortTimingClass`): LUTs sharing a LUT6 site are wired to
+the merged inputs, which otherwise adds false arcs and even false loops.
+
+**On the board (`tests/speed`, `tools/speed-test.py`):** the test path is
+three chained 32-bit additions and an XOR, launched every 4 test clocks and
+captured both after 1 clock (timed) and after 3 (settled); mismatches are
+counted. The sweep rewrites the PLL settings in the routed design and runs
+s6-bitgen for each frequency, so placement and routing stay fixed. On the
+Mojo V3 at room temperature it passes up to 162.5 MHz and starts failing at
+166.7 MHz; worst-case predictions for the same routing are 98.8 MHz (nextpnr)
+and 106.8 MHz (ISE), a ~1.5x margin, as expected between the slow corner
+(85 C, 1.14 V) and a board on a desk.
 
 prjcombine's SDF parser needed a few additions for ISE's output (operating
 conditions, `PATHPULSE`, `RECREM`, single-value delays, escaped names and
