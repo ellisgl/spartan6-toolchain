@@ -25,6 +25,8 @@ def main():
     m64 = [(37 * i + 11) & 0xFF for i in range(64)]
     m32 = [(91 * i + 5) & 0xFF for i in range(32)]
     sr = [(53 * i + 7) & 0xFF for i in range(24)]
+    md = [(29 * i + 3) & 0xFF for i in range(64)]
+    raddr = [0]
     pat = 0xA5C3
     bad = 0
     n = 0
@@ -39,14 +41,21 @@ def main():
                 sys.exit(1)
             m64[a % 64] = d
             m32[a % 32] = d
+            md[a % 64] = d
+
+        def read(a):
+            """(got, want) for 'R' a; md comes from the previous R's address."""
+            port.write(bytes([ord("R"), a]))
+            got = port.read(3)
+            want = bytes([m64[a % 64], m32[a % 32], md[raddr[0]]])
+            raddr[0] = a % 64
+            return got, want
 
         # Initial contents: read every address, then shift the initial
         # shift register contents out.
         init_bad = 0
-        for a in range(64):
-            port.write(bytes([ord("R"), a]))
-            got = port.read(2)
-            want = bytes([m64[a], m32[a % 32]])
+        for a in list(range(64)) + [0]:
+            got, want = read(a)
             if got != want:
                 init_bad += 1
                 if init_bad <= 8:
@@ -72,9 +81,7 @@ def main():
                 write(random.getrandbits(8), random.getrandbits(8))
             elif kind == "R":
                 a = random.getrandbits(8)
-                port.write(bytes([ord("R"), a]))
-                got = port.read(2)
-                want = bytes([m64[a % 64], m32[a % 32]])
+                got, want = read(a)
                 if got != want:
                     bad += 1
                     if bad <= 8:

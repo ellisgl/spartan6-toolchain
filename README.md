@@ -60,7 +60,7 @@ talks to the Mojo over its USB serial port):
 | `bram` | `tools/bram-test.py` | RAMB16BWER/RAMB8BWER, initial contents (slow: ~12 min) |
 | `dsp` | `tools/dsp-test.py` | DSP48A1 multiply and multiply-accumulate |
 | `clocks`, `clocks2` | `tools/clocks-test.py [--config 2]` | DCM_SP, PLL_BASE frequencies |
-| `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, SRL16E with initial contents |
+| `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, RAM64M (separate read address), SRL16E, with initial contents |
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -378,7 +378,11 @@ primary source is kept, as an always-on pip) and factory-test wires
   (`prePlace`); bus pins are timed through bit 0 (`dsp_timing_pin`).
 - **Distributed RAM / SRL (`lutram.cc`):** SLICEM LUTs as RAM64X1S (up to four
   per slice sharing the address, one always the D LUT, whose inputs are the
-  write address), RAM32M (whole slice) and SRLC32E/SRL16E (any SLICEM LUT).
+  write address), RAM32M and RAM64M (whole slice; what yosys uses for a
+  RAM with separate read and write addresses) and SRLC32E/SRL16E (any
+  SLICEM LUT). Address pins tied to 0 (an SRL's fixed tap) and undriven
+  data inputs are fed from one shared constant-0 LUT: some LUT address pins
+  can't reach ground, and a RAM's address can't be folded into its table.
 - **Bus pins** are named without brackets (`ADDRA5`): nextpnr's JSON writer
   regroups `X[i]` ports and loses where a partly used bus starts.
 - **LUT pairing (LUT6 fracturing):** two LUTs with at most 5 distinct inputs
@@ -417,7 +421,7 @@ Packer limits for now:
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
-  CARRYIN), SRL cascades (Q31), RAM32X1S/D, RAM64X1D, RAM128X1S/D, RAM64M,
+  CARRYIN), SRL cascades (Q31), RAM32X1S/D, RAM64X1D, RAM128X1S/D,
   latches, clock inversion, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
   CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
   driven dynamically.

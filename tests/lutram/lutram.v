@@ -1,14 +1,17 @@
 // Distributed RAM and shift register test (SLICEM LUTs) over the Mojo's USB
 // serial port:
-//   'W' addr data -> 'K'   m64[addr % 64] = m32[addr % 32] = data
-//   'R' addr      -> 2 bytes: m64[addr % 64], m32[addr % 32]
+//   'W' addr data -> 'K'   m64[addr % 64] = m32[addr % 32] = md[addr % 64] = data
+//   'R' addr      -> 3 bytes: m64[addr % 64], m32[addr % 32], md[raddr % 64],
+//                    then raddr = addr (md is read at the previous R's
+//                    address, separately from where W writes: RAM64M)
 //   'S' data      -> 1 byte: the byte shifted in 24 'S' commands ago
 //   'P'           -> 1 byte: bit 15 of a 16-bit register initialised to
 //                    16'hA5C3, which then rotates left by one (an SRL with a
 //                    non-zero initial value)
 // m64 and m32 have asynchronous reads (RAM64M / RAM32M); the shift register
 // is 24 deep (SRLC32E). All three start with known contents (tests the INIT
-// encoding): m64[i] = 37i + 11, m32[i] = 91i + 5, sr[i] = 53i + 7 (mod 256).
+// encoding): m64[i] = 37i + 11, m32[i] = 91i + 5, sr[i] = 53i + 7,
+// md[i] = 29i + 3 (mod 256); raddr starts at 0.
 // Checked by tools/lutram-test.py.
 module lutram (
     input  wire       clk,
@@ -29,11 +32,13 @@ module lutram (
     reg [7:0] m64 [0:63];
     reg [7:0] m32 [0:31];
     reg [7:0] sr  [0:23];
+    reg [7:0] md  [0:63];
     integer k;
     initial begin
         for (k = 0; k < 64; k = k + 1) m64[k] = 37 * k + 11;
         for (k = 0; k < 32; k = k + 1) m32[k] = 91 * k + 5;
         for (k = 0; k < 24; k = k + 1) sr[k]  = 53 * k + 7;
+        for (k = 0; k < 64; k = k + 1) md[k]  = 29 * k + 3;
     end
 
     reg [23:0] cmd = 0;
@@ -49,6 +54,7 @@ module lutram (
         if (we) begin
             m64[addr[5:0]] <= data;
             m32[addr[4:0]] <= data;
+            md[addr[5:0]]  <= data;
         end
     end
     integer i;
@@ -61,8 +67,10 @@ module lutram (
     wire [7:0] q64 = m64[addr[5:0]];
     wire [7:0] q32 = m32[addr[4:0]];
     wire [7:0] qsr = sr[23];
+    reg  [5:0] raddr = 0;
+    wire [7:0] qd  = md[raddr];
 
-    reg [15:0] out = 0;
+    reg [23:0] out = 0;
     reg [1:0]  nout = 0;
     reg [1:0]  phase = 0;
     wire       tx_taken;
@@ -89,18 +97,18 @@ module lutram (
             end else if (op == "S" && ncmd == 2) begin
                 data <= cmd[15:8]; phase <= 2; ncmd <= 0;
             end else if (op == "P") begin
-                out <= {8'h00, 7'h00, pat[15]}; nout <= 1; rot <= 1'b1; ncmd <= 0;
+                out <= {16'h00, 7'h00, pat[15]}; nout <= 1; rot <= 1'b1; ncmd <= 0;
             end else if (op != "W" && op != "R" && op != "S") begin
                 ncmd <= 0;
             end
         end
         case (phase)
-            1: begin out <= {q32, q64}; nout <= 2; phase <= 0; end
-            2: begin out <= {8'h00, qsr}; nout <= 1; shift <= 1'b1; phase <= 0; end
+            1: begin out <= {qd, q32, q64}; nout <= 3; raddr <= addr[5:0]; phase <= 0; end
+            2: begin out <= {16'h00, qsr}; nout <= 1; shift <= 1'b1; phase <= 0; end
             default: ;
         endcase
         if (tx_taken) begin
-            out  <= {8'h00, out[15:8]};
+            out  <= {8'h00, out[23:8]};
             nout <= nout - 1'b1;
         end
     end
