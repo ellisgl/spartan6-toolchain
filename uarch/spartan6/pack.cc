@@ -240,6 +240,14 @@ void Spartan6Impl::pack_logic()
             rename_if(ci, id_C, id_CK);
             for (auto sr : {id_R, id_S, id_CLR, id_PRE})
                 rename_if(ci, sr, id_SR);
+            // CE tied high and SR tied low are the slice defaults (CEUSED/SRUSED
+            // off): don't route constants to them. ISE treats the GND -> SR arcs
+            // as excluded, so routing them is also not legal for its tools.
+            NetInfo *ce = ci->getPort(id_CE), *sr = ci->getPort(id_SR);
+            if (ce && ce->constant_value == id_VCC)
+                ci->disconnectPort(id_CE);
+            if (sr && sr->constant_value == id_GND)
+                ci->disconnectPort(id_SR);
             ci->type = id_SLICE_FF;
             ffs++;
         } else if (ci->type.in(id_LDCE, id_LDPE, id_CARRY4, id_MUXF7, id_MUXF8)) {

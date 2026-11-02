@@ -11,11 +11,12 @@ nextpnr himbaechel uarch built on prjcombine. The plan is in
 - **nextpnr uarch (§3–5, `uarch/spartan6`):** first version. Blinky
   (`tests/blinky`, Mojo V3 pinout) packs, places and routes. Clock routing
   uses the dedicated BUFGMUX → GCLK → HCLK network.
-- **XDL writer (§6), stage 1:** working. `s6-xdl` converts our packed and
-  placed design into XDL. ISE routes it (`par` keeps our placement), checks it
-  with `drc` (0 errors on blinky and cylon) and builds the bitstream. Cylon
-  built this way runs correctly on the Mojo V3. Stage 2
-  will write our own routing as pips.
+- **XDL writer (§6):** working. `s6-xdl` converts our packed, placed and
+  routed design into XDL with our routing as ISE pips. ISE only converts it,
+  checks it (`drc`: 0 errors on blinky and cylon) and runs `bitgen`; `par` is
+  not used. Converting ISE's result back to XDL gives back exactly our pips.
+  Cylon and Blinky with our own routing run correctly on the Mojo V3.
+  `XDL_MODE=pins` writes pins only and lets ISE route instead (stage 1).
 - **Bitstream writer (§7):** not started; ISE's `bitgen` is used for now.
 
 ## Pipeline
@@ -36,7 +37,7 @@ prjcombine spartan6.zstd ──s6-export (Rust)──▶ xc6slx9.json ──s6_g
 make                    # build/chipdb-xc6slx9.bin and build/nextpnr-build/nextpnr-himbaechel
 make check              # chip database sanity checks
 make pnr  TEST=cylon    # yosys + nextpnr                 -> build/cylon/routed.json
-make bit  TEST=cylon    # + s6-xdl + ISE par/drc/bitgen   -> build/cylon/design.bin
+make bit  TEST=cylon    # + s6-xdl + ISE xdl2ncd/drc/bitgen -> build/cylon/design.bin
 make load TEST=cylon    # + load into the Mojo's FPGA RAM
 ```
 
@@ -91,25 +92,50 @@ tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
 `mojo-load.py` speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
 
-## XDL output (`exporter/src/bin/s6-xdl.rs`)
+## XDL output (`exporter/src/bin/s6-xdl/`)
 
-ISE names (tiles, sites, wires) come from prjcombine's own naming database.
-The database is built from ISE: `s6-rawdump` runs prjcombine's ISE dumper for
-the xc6slx9 only, through the `tools/ise-bin` wrappers, and prjcombine's
-`xrd2geom` converts the dump. `s6-xdl` checks that this database's
-interconnect structure matches the published database the chipdb came from.
+ISE names (tiles, sites, wires) come from prjcombine's own naming database,
+built from ISE: `s6-rawdump` runs prjcombine's ISE dumper for the xc6slx9
+only, through the `tools/ise-bin` wrappers, and prjcombine's `xrd2geom`
+converts the dump. `s6-xdl` checks that this database's interconnect
+structure matches the published database the chipdb came from.
 
-The site configuration strings follow what ISE writes (compare
-`xdl -ncd2xdl` on an ISE build) and prjcombine's `v2xdl-verify`:
+**Routing as pips:**
 
-- **LUTs:** `<L>6LUT` with an O6 equation. Constant inputs are folded into
-  the equation.
-- **FFs:** `<L>FF` with `#FF`, plus `<L>FFMUX` (O6 or the `<L>X` bypass) and
-  `<L>FFSRINIT`.
-- **Slice-wide settings:** `CLKINV`, `SYNC_ATTR`, and `CEUSED`/`SRUSED`.
-  Constant CE/SR inputs are left off.
+- **Pip origin:** each nextpnr pip is identified through the exporter's JSON
+  (`src_ref`).
+- **Interconnect pips:** named with prjcombine's naming rules (`ext_pips`,
+  alternate wire names, buffered source wires), plus the termination and
+  buffer hops from `resolve_wire_trace`.
+- **Site pins:** a pin counts as used when the route really reaches its wire
+  (compared as prjcombine canonical wires). Its pin pips (e.g.
+  `CLEXM_LOGICIN_B1 -> X_A2`) are added.
+- **Slice pseudo-pips:** written as site configuration (`<L>FFMUX`,
+  `<L>OUTMUX`, ...).
+- **I/O:** routes through ILOGIC (D -> FABRICOUT) or OLOGIC (D1 -> OQ, T1 -> TQ)
+  as ISE does, with dummy route-through instances. The IOB <-> IOI hops are
+  found in ISE's pip graph (the rawdump).
+- **Constant nets:** split per TIEOFF source, each with a dummy TIEOFF
+  instance (`HARD0`/`HARD1`).
+- **Repair pass:** walks each net in ISE's graph and adds the pips that
+  prjcombine models as plain wires: clock-spine MIDBUFs, terminations, and
+  BUFH route-throughs in the horizontal clock rows.
+
+**Site configuration** follows what ISE writes (compare `xdl -ncd2xdl` on an
+ISE build) and prjcombine's `v2xdl-verify`:
+
+- **LUTs:** `<L>6LUT` with an O6 equation.
+- **FFs:** `<L>FF` with `#FF`, plus `<L>FFSRINIT`.
+- **Slice-wide settings:** `CLKINV`, `SYNC_ATTR`, and `CEUSED`/`SRUSED` when
+  routed.
 - **IOBs:** standard, drive and slew from the UCF.
 - **Clock buffers:** BUFGMUX sites are written as `BUFG` instances.
+
+**Debug options:**
+
+- `--dump-naming X,Y`: a tile's bel and pin naming.
+- `--find-ise-wire NAME`: the naming entries that mention an ISE wire.
+- `--raw-pips-from TILE/WIRE`: ISE pips leaving a wire.
 
 ## How prjcombine maps onto himbaechel
 
@@ -184,16 +210,19 @@ Packer limits for now:
   with `-nocarry -nowidelut -nosrl -nolutram -nobram -nodsp`, as
   `make blinky` does.
 - **No timing model:** unit delays only.
-- **Wasted routing on CE/SR:** unused CE/SR inputs are routed to VCC/GND. The
-  bitstream writer could disable them instead.
+- **Constant CE/SR:** CE tied high and SR tied low are disconnected in the
+  packer (slice defaults), since ISE treats GND -> SR as an excluded arc.
+- **No OUTMUX=O6:** the exporter leaves out the OUTMUX=O6 slice option. It
+  duplicates the direct `<L>` pin, and using both makes ISE see two drivers.
 
 ## Not done yet
 
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **XDL stage 2:** write our routing as pips. prjcombine's
-  `ExpandedGridNaming::get_tile_pip_naming` names interconnect pips. Pseudo-pips
-  (slice muxes, IOB paths) map to site configs and route-throughs.
+- **Own bitstream writer (§7):** replace ISE's `bitgen`, then compare its
+  output with ISE's bit for bit on the same NCD.
+- **Excluded ISE arcs:** the chipdb still contains arcs ISE marks as excluded
+  (e.g. GND -> SR). The rawdump has the flags; the exporter could drop them.
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
   future bitstream writer. The `.bba` doesn't carry it.

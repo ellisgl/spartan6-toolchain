@@ -18,6 +18,7 @@ prjcombine-re-xilinx-ise-dump = { git = "https://codeberg.org/prjunnamed/prjcomb
 prjcombine-re-xilinx-geom = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-re-xilinx-naming = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-re-xilinx-naming-spartan6 = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
+prjcombine-re-xilinx-rawdump = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 prjcombine-re-xilinx-xdl = { git = "https://codeberg.org/prjunnamed/prjcombine.git", rev = "2b3317db3799b82b3ef5606438145ba76b9b4485" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

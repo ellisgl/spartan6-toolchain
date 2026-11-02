@@ -1047,6 +1047,7 @@ dependencies = [
  "prjcombine-re-xilinx-ise-dump",
  "prjcombine-re-xilinx-naming",
  "prjcombine-re-xilinx-naming-spartan6",
+ "prjcombine-re-xilinx-rawdump",
  "prjcombine-re-xilinx-xdl",
  "prjcombine-spartan6",
  "serde",

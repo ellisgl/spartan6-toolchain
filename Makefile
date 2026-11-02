@@ -95,7 +95,8 @@ $(BUILD)/ise-toolchain.kdl:
 	@mkdir -p $(BUILD)
 	printf 'env PATH="%s"\n' "$(abspath tools/ise-bin)" > $@
 
-$(RAWDUMP): $(EXPORTER) $(BUILD)/ise-toolchain.kdl
+# Order-only: the dump depends on ISE, not on our code.
+$(RAWDUMP): | $(EXPORTER) $(BUILD)/ise-toolchain.kdl
 	mkdir -p $(BUILD)/ise-tmp
 	TMPDIR=$(abspath $(BUILD)/ise-tmp) ISE_MOUNT=$(abspath $(BUILD)/ise-tmp) \
 		$(BUILD)/target/release/s6-rawdump $(BUILD)/ise-toolchain.kdl $(DEVICE) $@
@@ -113,7 +114,11 @@ $(S6XDL): $(EXPORTER)
 #   make load TEST=cylon   # + load into the Mojo's FPGA RAM
 #
 # tests/<name>/*.v with top module <name>, pins from tests/mojo_v3.ucf.
-# Stage 1 XDL: our packing and placement; ISE routes (par keeps placement).
+# XDL_MODE=routed (default): our packing, placement and routing; ISE only
+#   converts, checks (drc) and runs bitgen.
+# XDL_MODE=pins: our packing and placement; ISE's par routes.
+
+XDL_MODE ?= routed
 
 TEST ?= blinky
 T    := $(BUILD)/$(TEST)
@@ -129,13 +134,21 @@ $(BUILD)/%/routed.json: $(BUILD)/%/synth.json tests/mojo_v3.ucf $(CHIPDB) $(NPNR
 	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
 		-o ucf=tests/mojo_v3.ucf --write $@ --log $(dir $@)nextpnr.log
 
-$(BUILD)/%/design.xdl: $(BUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB)
-	$(S6XDL) --db $(DB) --geom $(GEOM) --routed $< --package $(PACKAGE) --out $@
+XDL_ARGS_routed := --rawdump $(RAWDUMP) --chipdb-json $(BUILD)/$(DEVICE).json
+XDL_ARGS_pins   := --pins-only
 
-# ISE: XDL -> NCD, route (placement is kept), DRC, bitstream.
+$(BUILD)/%/design.xdl: $(BUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB) $(RAWDUMP) $(BUILD)/$(DEVICE).json
+	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --package $(PACKAGE) --out $@
+
+# ISE: XDL -> NCD, (route with par in pins mode), DRC, bitstream.
 $(BUILD)/%/design.bin: $(BUILD)/%/design.xdl
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) xdl -xdl2ncd -force design.xdl design.ncd > xdl2ncd.log
+	if grep -q '^ERROR' $(dir $@)xdl2ncd.log; then grep '^ERROR' $(dir $@)xdl2ncd.log; exit 1; fi
+ifeq ($(XDL_MODE),pins)
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) par -w design.ncd design_routed.ncd > par.log
+else
+	cp $(dir $@)design.ncd $(dir $@)design_routed.ncd
+endif
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) drc design_routed.ncd > drc.log
 	grep -q '<0> errors' $(dir $@)drc.log || { grep ERROR $(dir $@)drc.log; exit 1; }
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) bitgen -w -g Binary:Yes -g UnusedPin:Pullnone \

@@ -187,6 +187,11 @@ pub fn expand(
         };
         for (attr, dst) in [(format!("MUX_FF{x}"), ffd), (format!("MUX_{x}OUT"), outmux)] {
             for val in enum_opts(db, bcls, bel, &attr) {
+                // OUTMUX=O6 duplicates the direct <L> pin; using both makes ISE
+                // see a net with two driver pins on one slice.
+                if attr.starts_with("MUX_") && attr.ends_with("OUT") && val == "O6" {
+                    continue;
+                }
                 if let Some(src) = source(&val) {
                     tb.pip(src, dst, "SITE", false, vec!["SITE".into(), prefix.into(), attr.clone(), val]);
                 }

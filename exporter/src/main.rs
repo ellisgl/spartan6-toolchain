@@ -22,7 +22,6 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use prjcombine_entity::EntityId;
-use prjcombine_entity::bundle_map::EntityBundleItemIndex;
 use prjcombine_interconnect::db::{
     BelInfo, BelInput, BelKind, BelSlotId, IntDb, SwitchBoxItem, TileClass, TileClassId, TileSlotId,
     TileWireCoord, WireKind,
@@ -30,6 +29,7 @@ use prjcombine_interconnect::db::{
 use prjcombine_interconnect::grid::{CellCoord, DieId, TileCoord, WireCoord};
 use prjcombine_spartan6::db::Database;
 use prjcombine_spartan6::defs::bslots;
+use s6_export::{pin_name, wire_name};
 use serde::Serialize;
 
 #[derive(Parser)]
@@ -262,18 +262,6 @@ impl TypeBuilder {
     }
 }
 
-/// Local name of a tile-class wire. Single-cell classes always refer to the
-/// anchor cell, so they share plain names; multi-cell classes get the class and
-/// cell prefix, because CELL[n] means a different cell in each class.
-fn wire_name(db: &IntDb, tcls: &TileClass, tcw: TileWireCoord) -> String {
-    let w = &db.wires[tcw.wire].name;
-    if tcls.cells.len() == 1 {
-        w.clone()
-    } else {
-        format!("{}.{}.{}", tcls.name, tcls.cells[tcw.cell], w)
-    }
-}
-
 /// nextpnr bel type. prjcombine has one SLICE class, but the packer must tell
 /// the three slice kinds apart. Only SLICE[0] is on the carry chain (see
 /// prjcombine's `bel_carry_prev`), so SLICE[1] is SLICEX, and SLICE[0] is
@@ -296,13 +284,6 @@ fn bel_type(bslot: BelSlotId, class: &str, tcls: &str) -> String {
 fn is_test_wire(local_name: &str) -> bool {
     // Local names may carry a "CLASS.CELL[n]." prefix; test only the wire part.
     local_name.rsplit('.').next().unwrap_or(local_name).contains("TEST")
-}
-
-fn pin_name(base: &str, idx: EntityBundleItemIndex, virt: impl Fn(usize) -> usize) -> String {
-    match idx {
-        EntityBundleItemIndex::Single => base.to_string(),
-        EntityBundleItemIndex::Array { index, .. } => format!("{base}[{}]", virt(index)),
-    }
 }
 
 fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
