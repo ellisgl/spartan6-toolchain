@@ -95,8 +95,53 @@ void Spartan6Impl::pack()
     pack_lut_pairs();
 }
 
+bool Spartan6Impl::lut_input_unused(const CellInfo *cell, IdString port) const
+{
+    if (!cell->type.in(id_SLICE_LUT, id_SLICE_LUT5) || cell->flat_index >= int(lut_used_inputs.size()))
+        return false;
+    static const IdString a_ports[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+    for (int i = 0; i < 6; i++)
+        if (port == a_ports[i])
+            return !(lut_used_inputs.at(cell->flat_index) >> i & 1);
+    return false;
+}
+
+bool Spartan6Impl::getCellDelay(const CellInfo *cell, IdString fromPort, IdString toPort, DelayQuad &delay) const
+{
+    if (lut_input_unused(cell, fromPort))
+        return false;
+    return HimbaechelAPI::getCellDelay(cell, fromPort, toPort, delay);
+}
+
+TimingPortClass Spartan6Impl::getPortTimingClass(const CellInfo *cell, IdString port, int &clockInfoCount) const
+{
+    if (lut_input_unused(cell, port)) {
+        clockInfoCount = 0;
+        return TMG_IGNORE;
+    }
+    return HimbaechelAPI::getPortTimingClass(cell, port, clockInfoCount);
+}
+
 void Spartan6Impl::prePlace()
 {
+    // Which LUT inputs each table depends on: input i matters if flipping it
+    // changes the output for some address.
+    lut_used_inputs.assign(ctx->cells.size(), 0x3f);
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (!ci->type.in(id_SLICE_LUT, id_SLICE_LUT5) || !ci->params.count(id_INIT))
+            continue;
+        const std::string &t = ci->params.at(id_INIT).str;
+        int n = int(t.size());
+        uint8_t used = 0;
+        for (int i = 0; i < 6 && (1 << i) < n; i++)
+            for (int addr = 0; addr < n; addr++)
+                if (t[addr] != t[addr ^ (1 << i)]) {
+                    used |= 1 << i;
+                    break;
+                }
+        lut_used_inputs.at(ci->flat_index) = used;
+    }
     // DSP timing depends on its pipeline registers: pick the variant from
     // the chip database (DSP_P, DSP_M or DSP_IN).
     for (auto &cell : ctx->cells) {

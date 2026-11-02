@@ -68,6 +68,13 @@ struct Spartan6Impl : HimbaechelAPI
 
     std::string getDefaultRouter() const override { return "router2"; }
 
+    // Timing: LUT inputs the table doesn't depend on (shared LUT6 sites wire
+    // both halves to the merged inputs) have no arc.
+    bool getCellDelay(const CellInfo *cell, IdString fromPort, IdString toPort, DelayQuad &delay) const override;
+    TimingPortClass getPortTimingClass(const CellInfo *cell, IdString port, int &clockInfoCount) const override;
+    std::vector<uint8_t> lut_used_inputs; // per cell flat index: bit i = A(i+1) matters
+    bool lut_input_unused(const CellInfo *cell, IdString port) const;
+
     // Flow helpers (pack.cc / ucf.cc)
     void read_ucf(const std::string &filename);
     void pack_io();
