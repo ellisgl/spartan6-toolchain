@@ -97,6 +97,21 @@ void Spartan6Impl::pack()
     pack_lut_pairs();
 }
 
+bool Spartan6Impl::checkPipAvail(PipId pip) const
+{
+    if (!(chip_pip_info(ctx->chip_info, pip).flags & 1))
+        return true;
+    WireId dst = ctx->getPipDstWire(pip);
+    for (auto bp : ctx->getWireBelPins(dst)) {
+        if (bp.pin != id_DI1)
+            continue;
+        const CellInfo *ci = ctx->getBoundBelCell(bp.bel);
+        return ci && ci->type == id_SLICE_LUTRAM && ci->params.count(id_RAM_MODE) &&
+               ci->params.at(id_RAM_MODE).as_string() == "RAM64";
+    }
+    return true;
+}
+
 bool Spartan6Impl::clk_inverted(const CellInfo *cell) const
 {
     auto it = cell->params.find(id_CLK_INV);
@@ -424,7 +439,8 @@ bool Spartan6Impl::slice_bypass_ok(int x, int y, int base, bool explain_invalid)
         if (lr && lr->type == id_SLICE_LUTRAM)
             if (const NetInfo *di = lr->getPort(id_DI1)) {
                 const CellInfo *dlut = cell_at(x, y, base + 3 * 8 + s6z::LUT6);
-                bool via_dx = letter == 2 && dlut && dlut->type == id_SLICE_LUTRAM && dlut->getPort(id_DI1) == di;
+                bool via_dx = letter == 2 && dlut && dlut->type == id_SLICE_LUTRAM && dlut->getPort(id_DI1) == di &&
+                              lr->params.count(id_RAM_MODE) && lr->params.at(id_RAM_MODE).as_string() == "RAM64";
                 if (!via_dx)
                     need(di);
             }

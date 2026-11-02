@@ -43,7 +43,8 @@ NEXTPNR_NAMESPACE_BEGIN
 //             RAMMODE RAM64. (Both: letter x reads at ADDRx, all write at
 //             ADDRD, which is also the D LUT's read address.)
 //   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
-//             CE on WE. RAMMODE SRL32. Cascades (Q31) are not supported yet.
+//             CE on WE. RAMMODE SRL32. A used Q31 (cascade) is taken from Q
+//             at address 31 when Q is unused.
 // An inverted clock (IS_*CLK_INVERTED) becomes CLK_INV = 1 on the LUT cells;
 // the slice inverts its clock for all of them and its FFs (CLKINV).
 //   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
@@ -82,7 +83,7 @@ std::string init_bits(const CellInfo *ci, IdString p, int n)
 void Spartan6Impl::pack_lutram()
 {
     NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
-    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0;
+    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0, ncasc = 0;
     std::vector<CellInfo *> ram64, ram32m, ram128, srl;
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
@@ -339,9 +340,28 @@ void Spartan6Impl::pack_lutram()
             nsrl++;
             continue;
         }
+        // Cascade output Q31 (yosys chains SRLC32Es for longer shift
+        // registers): when Q isn't used, Q at address 31 is the same bit, so
+        // Q31's net moves to Q and the address is tied high; the cascade is
+        // then ordinary routing. (Using both would need the slice's MC31
+        // path.)
         NetInfo *q31 = ci->getPort(id_Q31);
-        if (q31 && q31->users.entries())
-            log_error("SRLC32E %s: cascades (Q31) are not supported yet\n", ctx->nameOf(ci));
+        NetInfo *q = ci->getPort(id_Q);
+        if (q31 && q31->users.entries()) {
+            if (q && q->users.entries())
+                log_error("SRLC32E %s: Q and Q31 both used (MC31 cascade) is not supported yet\n", ctx->nameOf(ci));
+            if (q)
+                ci->disconnectPort(id_Q);
+            ci->disconnectPort(id_Q31);
+            ci->connectPort(id_Q, q31);
+            for (int i = 0; i < 5; i++) {
+                IdString a = ctx->idf("A[%d]", i);
+                if (ci->ports.count(a))
+                    ci->disconnectPort(a);
+                add_in(ci, a, vcc);
+            }
+            ncasc++;
+        }
         static const IdString a[5] = {ctx->id("A[0]"), ctx->id("A[1]"), ctx->id("A[2]"), ctx->id("A[3]"),
                                       ctx->id("A[4]")};
         static const IdString la[5] = {id_A2, id_A3, id_A4, id_A5, id_A6};
@@ -428,6 +448,8 @@ void Spartan6Impl::pack_lutram()
     if (n64 || n32m || n64m || n128 || nsrl)
         log_info("Packed %d RAM64X1S, %d RAM32M, %d RAM64M, %d RAM128X1S and %d SRLs into SLICEM LUTs.\n", n64, n32m,
                  n64m, n128, nsrl);
+    if (ncasc)
+        log_info("%d SRLC32E cascade outputs (Q31) taken from Q at address 31.\n", ncasc);
 }
 
 NEXTPNR_NAMESPACE_END
