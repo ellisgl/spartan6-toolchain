@@ -20,9 +20,11 @@ def main():
     ap.add_argument("--ops", type=int, default=1500)
     args = ap.parse_args()
 
-    m64 = [None] * 64
-    m32 = [None] * 32
-    sr = [None] * 24  # unknown until shifted in
+    # Initial contents (see tests/lutram/lutram.v); checked first, so run
+    # this right after loading the design.
+    m64 = [(37 * i + 11) & 0xFF for i in range(64)]
+    m32 = [(91 * i + 5) & 0xFF for i in range(32)]
+    sr = [(53 * i + 7) & 0xFF for i in range(24)]
     pat = 0xA5C3
     bad = 0
     n = 0
@@ -38,9 +40,31 @@ def main():
             m64[a % 64] = d
             m32[a % 32] = d
 
-        # Fill both memories first so every read has a known value.
+        # Initial contents: read every address, then shift the initial
+        # shift register contents out.
+        init_bad = 0
         for a in range(64):
-            write(a, random.getrandbits(8))
+            port.write(bytes([ord("R"), a]))
+            got = port.read(2)
+            want = bytes([m64[a], m32[a % 32]])
+            if got != want:
+                init_bad += 1
+                if init_bad <= 8:
+                    print(f"  initial R {a:#04x}: got {got.hex()} want {want.hex()}")
+        for i in range(24):
+            d = random.getrandbits(8)
+            port.write(bytes([ord("S"), d]))
+            got = port.read(1)
+            want = sr[-1]
+            sr = [d] + sr[:-1]
+            if got != bytes([want]):
+                init_bad += 1
+                if init_bad <= 8:
+                    print(f"  initial S #{i}: got {got.hex()} want {want:02x}")
+        if init_bad:
+            print(f"FAIL: {init_bad} initial values wrong")
+            sys.exit(1)
+        print("initial RAM and shift register contents correct")
         for op in range(args.ops):
             kind = random.choice("WRSP")
             n += 1

@@ -462,7 +462,11 @@ fn main() {
                         "RAM32" => ("SPRAM32", (0..64).map(bit).collect()),
                         _ => ("SPRAM64", (0..64).map(bit).collect()),
                     };
-                    s.set(&format!("{l}6LUT"), &[&c.name, "#RAM", &format!("O6=0x{}", hex(&table))]);
+                    // A RAM32 LUT is two 32-bit RAMs: O6 is the upper half of
+                    // the table (A6 high), O5 the lower. XDL wants 64 bits for
+                    // O6, so its 32 are repeated (A6 doesn't matter to it).
+                    let o6: Vec<bool> = if mode == "RAM32" { table[32..].iter().chain(&table[32..]).copied().collect() } else { table.clone() };
+                    s.set(&format!("{l}6LUT"), &[&c.name, "#RAM", &format!("O6=0x{}", hex(&o6))]);
                     s.set(&format!("{l}6RAMMODE"), &["", xmode]);
                     if mode == "RAM32" {
                         s.set(&format!("{l}5LUT"), &[&format!("{}$o5", c.name), "#RAM", &format!("O5=0x{}", hex(&table[..32]))]);

@@ -60,7 +60,7 @@ talks to the Mojo over its USB serial port):
 | `bram` | `tools/bram-test.py` | RAMB16BWER/RAMB8BWER, initial contents (slow: ~12 min) |
 | `dsp` | `tools/dsp-test.py` | DSP48A1 multiply and multiply-accumulate |
 | `clocks`, `clocks2` | `tools/clocks-test.py [--config 2]` | DCM_SP, PLL_BASE frequencies |
-| `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, SRLC32E, SRL16E |
+| `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, SRL16E with initial contents |
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -421,8 +421,7 @@ Packer limits for now:
   latches, clock inversion, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
   CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
   driven dynamically.
-- **Untested:** SRL initial values other than 0, RAM32M initial values, PLL
-  fed through CLKIN1 (BUFIO2) rather than CLKIN2.
+- **Untested:** PLL fed through CLKIN1 (BUFIO2) rather than CLKIN2.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
 - **Constant CE/SR:** CE tied high and SR tied low are disconnected in the

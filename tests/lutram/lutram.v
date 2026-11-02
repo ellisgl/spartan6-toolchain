@@ -7,7 +7,9 @@
 //                    16'hA5C3, which then rotates left by one (an SRL with a
 //                    non-zero initial value)
 // m64 and m32 have asynchronous reads (RAM64M / RAM32M); the shift register
-// is 24 deep (SRLC32E). Checked by tools/lutram-test.py.
+// is 24 deep (SRLC32E). All three start with known contents (tests the INIT
+// encoding): m64[i] = 37i + 11, m32[i] = 91i + 5, sr[i] = 53i + 7 (mod 256).
+// Checked by tools/lutram-test.py.
 module lutram (
     input  wire       clk,
     input  wire       rst_n,
@@ -27,6 +29,12 @@ module lutram (
     reg [7:0] m64 [0:63];
     reg [7:0] m32 [0:31];
     reg [7:0] sr  [0:23];
+    integer k;
+    initial begin
+        for (k = 0; k < 64; k = k + 1) m64[k] = 37 * k + 11;
+        for (k = 0; k < 32; k = k + 1) m32[k] = 91 * k + 5;
+        for (k = 0; k < 24; k = k + 1) sr[k]  = 53 * k + 7;
+    end
 
     reg [23:0] cmd = 0;
     reg [1:0]  ncmd = 0;
