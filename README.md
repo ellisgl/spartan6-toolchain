@@ -63,6 +63,7 @@ talks to the Mojo over its USB serial port):
 | `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, RAM64M (separate read address), RAM128X1S, SRL16E, with initial contents |
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
+| `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
 5FFs. Shared UART helpers are in `tests/common/uart.v` (they honour the
@@ -417,19 +418,23 @@ Packer limits for now:
 
 - **5FFs only behind paired LUTs.** A FF fed by anything else (another FF,
   an I/O, a LUT with other loads) uses a main FF; a pass-through LUT5 could
-  free those too. Latches are not supported (they would also rule out 5FFs
-  in their slice).
+  free those too.
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
   CARRYIN), SRL cascades (Q31), RAM32X1S/D, RAM64X1D, RAM128X1D,
-  latches, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
+  DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
   CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
   driven dynamically.
 - **Untested:** PLL fed through CLKIN1 (BUFIO2) rather than CLKIN2.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
+- **Latches (LDCE/LDPE):** slice FFs in latch mode (`FF_LATCH`, slice-wide,
+  so part of the control set; never 5FFs), gate on the clock pin with the
+  slice's clock inversion for an active-high gate (as ISE writes CLKINV =
+  CLK_B), gate enable on CE, CLR/PRE asynchronous on SR. Timing treats them
+  as edge-triggered (the transparent D -> Q path isn't modelled).
 - **Clock inversion:** FDxE_1 and `IS_*_INVERTED` clocks set the slice's
   CLKINV (prjcombine: the SLICE CLK pin's inversion bit), so it's part of
   the slice control set; a LUT1 inverter on a FF/RAM/SRL clock is absorbed

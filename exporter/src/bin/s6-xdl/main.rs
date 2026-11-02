@@ -661,8 +661,9 @@ fn main() {
                 } else {
                     assert_eq!(&sub[1..], "FF", "{}: unexpected FF bel", c.name);
                     let ff_type = c.params["FF_TYPE"].as_str();
-                    s.set(&format!("{l}FF"), &[&c.name, "#FF"]);
-                    let srinit = if matches!(ff_type, "FDSE" | "FDPE") { "SRINIT1" } else { "SRINIT0" };
+                    let latch = matches!(ff_type, "LDCE" | "LDPE");
+                    s.set(&format!("{l}FF"), &[&c.name, if latch { "#LATCH" } else { "#FF" }]);
+                    let srinit = if matches!(ff_type, "FDSE" | "FDPE" | "LDPE") { "SRINIT1" } else { "SRINIT0" };
                     s.set(&format!("{l}FFSRINIT"), &["", srinit]);
                     s.set("SYNC_ATTR", &["", if matches!(ff_type, "FDRE" | "FDSE") { "SYNC" } else { "ASYNC" }]);
                     s.set("CLKINV", &["", if clk_inv(c) { "CLK_B" } else { "CLK" }]);

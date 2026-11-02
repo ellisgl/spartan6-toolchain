@@ -417,7 +417,10 @@ impl<'a> Gen<'a> {
                 // <L>FF or <L>5FF (D from O5, Q out through MUX_<L>OUT=<L>5Q).
                 let five = if &sub[1..] == "5FF" { "5" } else { "" };
                 let ff_type = c.params["FF_TYPE"].as_str();
-                let srinit = matches!(ff_type, "FDSE" | "FDPE");
+                let srinit = matches!(ff_type, "FDSE" | "FDPE" | "LDPE");
+                if matches!(ff_type, "LDCE" | "LDPE") {
+                    self.set_bits(bcrd, "FF_LATCH", &[true]);
+                }
                 self.set_bits(bcrd, &format!("FF{l}{five}_SRINIT"), &[srinit]);
                 self.set_bits(bcrd, "FF_SR_SYNC", &[matches!(ff_type, "FDRE" | "FDSE")]);
                 if c.conns.contains_key("SR") {
