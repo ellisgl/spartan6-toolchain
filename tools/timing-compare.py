@@ -30,7 +30,8 @@ def nextpnr_period(log):
 
 
 def ise_period(build):
-    """Worst clock-to-setup (ns) from trce's unconstrained data sheet."""
+    """Worst clock-to-setup as a clock period (ns) from trce's
+    unconstrained data sheet."""
     twr = os.path.join(build, "trce_u.twr")
     subprocess.run(
         [os.path.join(ROOT, "tools/ise.sh"), "trce", "-v", "1", "-u", "1", "design_routed.ncd", "-o", "trce_u.twr"],
@@ -48,9 +49,13 @@ def ise_period(build):
                 if not line.strip():
                     in_table = False
                     continue
+                # Columns: Src:Rise/Dest:Rise, Fall/Rise, Rise/Fall, Fall/Fall.
+                # trce gives raw path delays; a path between opposite edges
+                # has half a period, so it needs twice that as a period.
                 cols = [c.strip() for c in line.split("|")]
-                if len(cols) > 1 and re.fullmatch(r"[0-9.]+", cols[1]):
-                    worst = max(worst or 0.0, float(cols[1]))
+                for k, scale in ((1, 1.0), (2, 2.0), (3, 2.0), (4, 1.0)):
+                    if len(cols) > k and re.fullmatch(r"[0-9.]+", cols[k]):
+                        worst = max(worst or 0.0, scale * float(cols[k]))
     return worst
 
 

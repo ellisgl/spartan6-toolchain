@@ -90,13 +90,13 @@ def add_cells(ch, grade, cd, TimingValue, ClockEdge):
         if v is not None:
             cell.add_comb_arc(frm, to, TimingValue(ps(v)))
 
-    def clk_out(cell, clk, out, v):
+    def clk_out(cell, clk, out, v, edge=R):
         if v is not None:
-            cell.add_clock_out(clk, out, R, TimingValue(ps(v)))
+            cell.add_clock_out(clk, out, edge, TimingValue(ps(v)))
 
-    def setup_hold(cell, clk, pin, sh):
+    def setup_hold(cell, clk, pin, sh, edge=R):
         if sh is not None:
-            cell.add_setup_hold(clk, pin, R, TimingValue(ps(sh[0])), TimingValue(ps(sh[1])))
+            cell.add_setup_hold(clk, pin, edge, TimingValue(ps(sh[0])), TimingValue(ps(sh[1])))
 
     # LUTs: A1..A6 -> O (ISE ADR0..ADR5).
     lut = ch.timing.add_cell_variant(grade, "SLICE_LUT")
@@ -106,13 +106,16 @@ def add_cells(ch, grade, cd, TimingValue, ClockEdge):
     for i in range(5):
         comb(lut5, f"A{i + 1}", "O", cd.delay("X_LUT5", f"ADR{i}", "O"))
 
-    # Flip-flops: CK -> Q, setup/hold of D, CE, SR.
+    # Flip-flops: CK -> Q, setup/hold of D, CE, SR. "_N" variants: the
+    # slice's clock inverted (CLKINV), same numbers on the falling edge; the
+    # uarch picks them for cells with CLK_INV.
     for ty in ("SLICE_FF", "SLICE_FF5"):
-        ff = ch.timing.add_cell_variant(grade, ty)
-        clk_out(ff, "CK", "Q", cd.delay("X_SFF", "CLK", "O") or cd.delay("X_FF", "CLK", "O"))
-        setup_hold(ff, "CK", "D", cd.check("X_SFF", "I", "CLK"))
-        setup_hold(ff, "CK", "CE", cd.check("X_SFF", "CE", "CLK"))
-        setup_hold(ff, "CK", "SR", cd.check("X_SFF", "SRST|SSET", "CLK"))
+        for sfx, edge in (("", R), ("_N", ClockEdge.FALLING)):
+            ff = ch.timing.add_cell_variant(grade, ty + sfx)
+            clk_out(ff, "CK", "Q", cd.delay("X_SFF", "CLK", "O") or cd.delay("X_FF", "CLK", "O"), edge)
+            setup_hold(ff, "CK", "D", cd.check("X_SFF", "I", "CLK"), edge)
+            setup_hold(ff, "CK", "CE", cd.check("X_SFF", "CE", "CLK"), edge)
+            setup_hold(ff, "CK", "SR", cd.check("X_SFF", "SRST|SSET", "CLK"), edge)
 
     # Carry chain: our CI is ISE's CI or CYINIT (one CYINIT mux in front).
     carry = ch.timing.add_cell_variant(grade, "CARRY4")
@@ -132,17 +135,18 @@ def add_cells(ch, grade, cd, TimingValue, ClockEdge):
 
     # Distributed RAM and shift registers: reads are combinational from the
     # address, writes/shifts clocked.
-    lr = ch.timing.add_cell_variant(grade, "SLICE_LUTRAM")
-    rd = cd.delay("X_RAMD64_ADV", r"RADR\d", "O") or cd.delay("X_SRLC32E", r"A\[\d\]", "Q")
-    for i in range(6):
-        comb(lr, f"A{i + 1}", "O", rd)
-        comb(lr, f"A{i + 1}", "O5", rd)
-    clk_out(lr, "CLK", "O", max(filter(None, [cd.delay("X_RAMD64_ADV", "CLK", "O"), cd.delay("X_SRLC32E", "CLK", "Q")]), default=None))
-    for pin in ("DI1", "DI2"):
-        setup_hold(lr, "CLK", pin, cd.check("X_RAMD64_ADV", "I", "CLK"))
-    for i in range(6):
-        setup_hold(lr, "CLK", f"WA{i + 1}", cd.check("X_RAMD64_ADV", f"WADR{i}", "CLK"))
-    setup_hold(lr, "CLK", "WE", cd.check("X_SRLC32E", "CE", "CLK"))
+    for sfx, edge in (("", R), ("_N", ClockEdge.FALLING)):
+        lr = ch.timing.add_cell_variant(grade, "SLICE_LUTRAM" + sfx)
+        rd = cd.delay("X_RAMD64_ADV", r"RADR\d", "O") or cd.delay("X_SRLC32E", r"A\[\d\]", "Q")
+        for i in range(6):
+            comb(lr, f"A{i + 1}", "O", rd)
+            comb(lr, f"A{i + 1}", "O5", rd)
+        clk_out(lr, "CLK", "O", max(filter(None, [cd.delay("X_RAMD64_ADV", "CLK", "O"), cd.delay("X_SRLC32E", "CLK", "Q")]), default=None), edge)
+        for pin in ("DI1", "DI2"):
+            setup_hold(lr, "CLK", pin, cd.check("X_RAMD64_ADV", "I", "CLK"), edge)
+        for i in range(6):
+            setup_hold(lr, "CLK", f"WA{i + 1}", cd.check("X_RAMD64_ADV", f"WADR{i}", "CLK"), edge)
+        setup_hold(lr, "CLK", "WE", cd.check("X_SRLC32E", "CE", "CLK"), edge)
 
     # Block RAM (both halves use the same numbers): clock-to-out, setup/hold.
     bram = ch.timing.add_cell_variant(grade, "BRAM")

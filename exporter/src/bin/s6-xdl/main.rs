@@ -472,7 +472,7 @@ fn main() {
                         s.set(&format!("{l}5LUT"), &[&format!("{}$o5", c.name), "#RAM", &format!("O5=0x{}", hex(&table[..32]))]);
                         s.set(&format!("{l}5RAMMODE"), &["", "SPRAM32"]);
                     }
-                    s.set("CLKINV", &["", "CLK"]);
+                    s.set("CLKINV", &["", if clk_inv(c) { "CLK_B" } else { "CLK" }]);
                     for (port, _) in &c.conns {
                         let (pins, output): (Vec<String>, bool) = match port.as_str() {
                             p if p.len() == 2 && p.starts_with('A') => (vec![format!("{l}{}", &p[1..])], false),
@@ -627,7 +627,7 @@ fn main() {
                     let srinit = if matches!(ff_type, "FDSE" | "FDPE") { "SRINIT1" } else { "SRINIT0" };
                     s.set(&format!("{l}5FFSRINIT"), &["", srinit]);
                     s.set("SYNC_ATTR", &["", if matches!(ff_type, "FDRE" | "FDSE") { "SYNC" } else { "ASYNC" }]);
-                    s.set("CLKINV", &["", "CLK"]);
+                    s.set("CLKINV", &["", if clk_inv(c) { "CLK_B" } else { "CLK" }]);
                     if routed {
                         cands.insert((ci, "Q".into()), site_cand(format!("{l}MUX"), true));
                         for (port, pin) in [("CK", "CLK"), ("CE", "CE"), ("SR", "SR")] {
@@ -655,7 +655,7 @@ fn main() {
                     let srinit = if matches!(ff_type, "FDSE" | "FDPE") { "SRINIT1" } else { "SRINIT0" };
                     s.set(&format!("{l}FFSRINIT"), &["", srinit]);
                     s.set("SYNC_ATTR", &["", if matches!(ff_type, "FDRE" | "FDSE") { "SYNC" } else { "ASYNC" }]);
-                    s.set("CLKINV", &["", "CLK"]);
+                    s.set("CLKINV", &["", if clk_inv(c) { "CLK_B" } else { "CLK" }]);
                     if routed {
                         // D comes through a slice mux (a SITE pip); the bypass pin <L>X if routed there.
                         cands.insert((ci, "D".into()), site_cand(format!("{l}X"), false));
@@ -1697,4 +1697,10 @@ mod tests {
         assert_eq!(lut_expr(&[false, false, false, true], &[1, 2]), "(A2*A1)");
         assert_eq!(lut_expr(&lut_table("0110"), &[1, 2]), "((A2*~A1)+(~A2*A1))");
     }
+}
+
+
+/// CLK_INV = 1 (nextpnr): the slice's clock is inverted (CLKINV = CLK_B).
+fn clk_inv(c: &s6_export::nextpnr::NCell) -> bool {
+    c.params.get("CLK_INV").is_some_and(|v| v.chars().any(|ch| ch == '1'))
 }

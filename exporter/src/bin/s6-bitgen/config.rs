@@ -363,6 +363,9 @@ impl<'a> Gen<'a> {
                 let bcrd = cell.bel(self.slot(slot));
                 self.used_slices.insert(bcrd);
                 let l = &sub[..1];
+                if c.params.get("CLK_INV").is_some_and(|v| v.chars().any(|ch| ch == '1')) {
+                    self.set_input_inv_raw(bcrd, "CLK", true);
+                }
                 let mode = c.params.get("RAM_MODE").map(String::as_str).unwrap_or("RAM64");
                 self.set_enum(bcrd, &format!("{l}RAMMODE"), mode);
                 let init: Vec<bool> = c.params.get("INIT").map(|v| v.chars().rev().map(|ch| ch == '1').collect()).unwrap_or_default();
@@ -400,6 +403,10 @@ impl<'a> Gen<'a> {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = cell.bel(self.slot(slot));
                 self.used_slices.insert(bcrd);
+                // Inverted slice clock (CLKINV = CLK_B): the CLK pin's inversion bit.
+                if c.params.get("CLK_INV").is_some_and(|v| v.chars().any(|ch| ch == '1')) {
+                    self.set_input_inv_raw(bcrd, "CLK", true);
+                }
                 let l = &sub[..1];
                 // <L>FF or <L>5FF (D from O5, Q out through MUX_<L>OUT=<L>5Q).
                 let five = if &sub[1..] == "5FF" { "5" } else { "" };

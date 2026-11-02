@@ -62,6 +62,7 @@ talks to the Mojo over its USB serial port):
 | `clocks`, `clocks2` | `tools/clocks-test.py [--config 2]` | DCM_SP, PLL_BASE frequencies |
 | `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, RAM64M (separate read address), SRL16E, with initial contents |
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
+| `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
 5FFs. Shared UART helpers are in `tests/common/uart.v` (they honour the
@@ -422,12 +423,17 @@ Packer limits for now:
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
   CARRYIN), SRL cascades (Q31), RAM32X1S/D, RAM64X1D, RAM128X1S/D,
-  latches, clock inversion, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
+  latches, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
   CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
   driven dynamically.
 - **Untested:** PLL fed through CLKIN1 (BUFIO2) rather than CLKIN2.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
+- **Clock inversion:** FDxE_1 and `IS_*_INVERTED` clocks set the slice's
+  CLKINV (prjcombine: the SLICE CLK pin's inversion bit), so it's part of
+  the slice control set; a LUT1 inverter on a FF/RAM/SRL clock is absorbed
+  into it, as ISE's map does (yosys inverts RAM64M clocks that way). Timing
+  uses falling-edge variants (`SLICE_FF_N`, `SLICE_LUTRAM_N`, ...).
 - **Constant CE/SR:** CE tied high and SR tied low are disconnected in the
   packer (slice defaults), since ISE treats GND -> SR as an excluded arc.
 - **No OUTMUX=O6:** the exporter leaves out the OUTMUX=O6 slice option. It
