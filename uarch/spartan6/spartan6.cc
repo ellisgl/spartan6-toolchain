@@ -88,7 +88,7 @@ void Spartan6Impl::prePlace()
     ff_info.assign(ctx->cells.size(), FFInfo());
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
-        if (ci->type != id_SLICE_FF)
+        if (!ci->type.in(id_SLICE_FF, id_SLICE_FF5))
             continue;
         auto &fi = ff_info.at(ci->flat_index);
         fi.clk = ci->getPort(id_CK);
@@ -104,7 +104,11 @@ void Spartan6Impl::prePlace()
 // type so that only paired LUTs land on LUT5 bels.
 BelBucketId Spartan6Impl::getBelBucketForCellType(IdString cell_type) const
 {
-    return cell_type == id_SLICE_LUT5 ? id_SLICE_LUT : cell_type;
+    if (cell_type == id_SLICE_LUT5)
+        return id_SLICE_LUT;
+    if (cell_type == id_SLICE_FF5)
+        return id_SLICE_FF;
+    return cell_type;
 }
 
 bool Spartan6Impl::isValidBelForCellType(IdString cell_type, BelId bel) const
@@ -113,12 +117,14 @@ bool Spartan6Impl::isValidBelForCellType(IdString cell_type, BelId bel) const
     int z = ctx->getBelLocation(bel).z;
     if (cell_type == id_SLICE_LUT5)
         return bel_type == id_SLICE_LUT && s6z::kind(z) == s6z::LUT5;
+    if (cell_type == id_SLICE_FF5)
+        return bel_type == id_SLICE_FF && s6z::kind(z) == s6z::FF5;
     if (bel_type != cell_type)
         return false;
     if (bel_type == id_IOB)
         return bonded_iobs.count(bel);
-    // LUT5 bels only take the LUT5 half of a pair. Not supported yet: the
-    // O5-fed 5FFs.
+    // LUT5 and 5FF bels only take cells clustered there by pack_lut_pairs
+    // (types SLICE_LUT5 / SLICE_FF5).
     if (bel_type == id_SLICE_LUT && s6z::kind(z) == s6z::LUT5)
         return false;
     if (bel_type == id_SLICE_FF && s6z::kind(z) == s6z::FF5)

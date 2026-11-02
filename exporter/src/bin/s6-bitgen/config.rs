@@ -296,14 +296,16 @@ impl<'a> Gen<'a> {
                 let table: Vec<bool> = range.clone().map(|i| init[i % k]).collect();
                 self.set_bits_at(bcrd, &format!("{l}6LUT"), range.start, &table);
             }
-            "SLICE_FF" => {
+            "SLICE_FF" | "SLICE_FF5" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = cell.bel(self.slot(slot));
                 self.used_slices.insert(bcrd);
                 let l = &sub[..1];
+                // <L>FF or <L>5FF (D from O5, Q out through MUX_<L>OUT=<L>5Q).
+                let five = if &sub[1..] == "5FF" { "5" } else { "" };
                 let ff_type = c.params["FF_TYPE"].as_str();
                 let srinit = matches!(ff_type, "FDSE" | "FDPE");
-                self.set_bits(bcrd, &format!("FF{l}_SRINIT"), &[srinit]);
+                self.set_bits(bcrd, &format!("FF{l}{five}_SRINIT"), &[srinit]);
                 self.set_bits(bcrd, "FF_SR_SYNC", &[matches!(ff_type, "FDRE" | "FDSE")]);
                 if c.conns.contains_key("SR") {
                     self.set_bits(bcrd, "FF_SR_ENABLE", &[true]);

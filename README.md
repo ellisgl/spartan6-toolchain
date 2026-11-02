@@ -244,6 +244,13 @@ primary source is kept, as an always-on pip) and factory-test wires
   `-o nolut5` turns this off. On the test designs it saves 25–35% of LUT
   sites. The XDL writer gives ISE `O6=(A6*f)`, since ISE rejects a tied-high
   A6 the equation doesn't use.
+- **5FFs:** a 5FF's D is hardwired to its letter's O5 and its Q leaves only
+  through `<L>MUX` (ISE's primitive definitions; no AX path on Spartan-6). So
+  a FF that is the sole load of a pair's LUT5 half joins the pair's cluster
+  on the 5FF bel (cell type `SLICE_FF5`); pairs are oriented so such a LUT
+  becomes the LUT5 half. `tests/fill` (5824 FFs, 7451 LUTs) only fits the
+  xc6slx9 this way, and matches ISE bitgen byte for byte. XDL quirk: the 5FF
+  element has no cfg values, so it is written `A5FF:<name>:`.
 - **Placement rules:** the FFs in a slice share CLK, CE and SR, and
   sync/async mode. I/Os only go on bonded pads.
 - **Constants:** GND/VCC are routed by router2 to any `TIE_0`/`TIE_1`/`CONST_*`
@@ -251,8 +258,13 @@ primary source is kept, as an always-on pip) and factory-test wires
 
 Packer limits for now:
 
-- **5FF bels are disabled.** Only 4 of a slice's 8 storage elements are used;
-  the 5FFs need their D from O5 (or AX..DX) and the no-latch rule.
+- **5FFs only behind paired LUTs.** A FF fed by anything else (another FF,
+  an I/O, a LUT with other loads) uses a main FF; a pass-through LUT5 could
+  free those too. Latches are not supported (they would also rule out 5FFs
+  in their slice).
+- **Placement doesn't minimise slices:** on a mostly empty chip the placer
+  spreads logic out, so small designs don't use fewer slices; the gain from
+  pairing and 5FFs is capacity.
 - **Not supported yet:** CARRY4, MUXF7/F8, SRL, LUTRAM, BRAM and DSP. Synthesize
   with `-nocarry -nowidelut -nosrl -nolutram -nobram -nodsp`, as
   `make blinky` does.

@@ -288,6 +288,18 @@ bool lut_inputs(CellInfo *ci, std::vector<NetInfo *> &nets)
     return nets.size() <= 5;
 }
 
+// The FF a LUT drives, if that FF's D is the LUT output's only load.
+CellInfo *sole_ff_load(CellInfo *lut)
+{
+    NetInfo *o = lut->getPort(id_O);
+    if (!o || o->users.entries() != 1)
+        return nullptr;
+    auto &usr = *o->users.begin();
+    if (usr.cell->type != id_SLICE_FF || usr.port != id_D || usr.cell->cluster != ClusterId())
+        return nullptr;
+    return usr.cell;
+}
+
 // Rewrite a LUT as a 5-input table over `merged` (on A1..A5).
 void remap_lut(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged)
 {
@@ -328,7 +340,7 @@ void Spartan6Impl::pack_lut_pairs()
     NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
     pool<IdString> done;
     std::vector<NetInfo *> a_in, b_in, merged;
-    int pairs = 0;
+    int pairs = 0, ff5s = 0;
     for (auto &cell : ctx->cells) {
         CellInfo *a = cell.second.get();
         if (a->type != id_SLICE_LUT || done.count(a->name) || !lut_inputs(a, a_in))
@@ -359,6 +371,11 @@ void Spartan6Impl::pack_lut_pairs()
         }
         if (!best)
             continue;
+        // The LUT5 half's O5 can feed that letter's 5FF; prefer the LUT whose
+        // only load is a FF there.
+        if (sole_ff_load(a) && !sole_ff_load(best))
+            std::swap(a, best);
+        lut_inputs(a, a_in);
         lut_inputs(best, b_in);
         merged = a_in;
         for (NetInfo *m : b_in)
@@ -380,8 +397,20 @@ void Spartan6Impl::pack_lut_pairs()
         done.insert(a->name);
         done.insert(best->name);
         pairs++;
+        // 5FF: D is hardwired to O5 and Q leaves on <L>MUX, so it can only
+        // take a FF that is the LUT5 half's sole load.
+        if (CellInfo *ff = sole_ff_load(best)) {
+            ff->type = id_SLICE_FF5;
+            a->constr_children.push_back(ff);
+            ff->cluster = a->name;
+            ff->constr_x = 0;
+            ff->constr_y = 0;
+            ff->constr_z = s6z::FF5 - s6z::LUT6;
+            ff->constr_abs_z = false;
+            ff5s++;
+        }
     }
-    log_info("Packed %d LUT pairs into shared LUT6/LUT5 sites.\n", pairs);
+    log_info("Packed %d LUT pairs into shared LUT6/LUT5 sites, %d with a 5FF.\n", pairs, ff5s);
 }
 
 NEXTPNR_NAMESPACE_END

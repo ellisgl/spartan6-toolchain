@@ -407,7 +407,7 @@ fn main() {
         let (x, y, ref belname) = c.bel;
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" => {}
-            "SLICE_LUT" | "SLICE_LUT5" | "SLICE_FF" => {
+            "SLICE_LUT" | "SLICE_LUT5" | "SLICE_FF" | "SLICE_FF5" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = names.bel(x, y, slot);
                 let (tile, site) = names.site(bcrd);
@@ -426,7 +426,7 @@ fn main() {
                 let l = sub.chars().next().unwrap();
                 let inst = site.clone();
                 let site_cand = |pin: String, output: bool| Cand::Site { bcrd, pins: vec![pin], inst: inst.clone(), output };
-                if c.typ != "SLICE_FF" {
+                if c.typ.starts_with("SLICE_LUT") {
                     // <L>6LUT drives O6, <L>5LUT drives O5. A LUT6 sharing its
                     // site with a LUT5 has a 5-input table and A6 tied high.
                     let half = &sub[1..2];
@@ -481,8 +481,13 @@ fn main() {
                                     Cand::Site { bcrd, pins: vec![format!("{l}MUX")], inst: inst.clone(), output: true },
                                 );
                             } else {
-                                s.set(&format!("{l}OUTMUX"), &["", "O5"]);
-                                pins.insert((ci, "O".into()), (inst.clone(), format!("{l}MUX")));
+                                let to_5ff = nets[ni].users.iter().all(|(u, p)| {
+                                    p == "D" && cells[*u].bel == (x, y, format!("{slot}.{l}5FF"))
+                                });
+                                if !to_5ff {
+                                    s.set(&format!("{l}OUTMUX"), &["", "O5"]);
+                                    pins.insert((ci, "O".into()), (inst.clone(), format!("{l}MUX")));
+                                }
                             }
                         } else if routed {
                             // O6 can leave on <L>, or on <L>MUX through OUTMUX=O6.
@@ -501,8 +506,37 @@ fn main() {
                             }
                         }
                     }
+                } else if &sub[1..] == "5FF" {
+                    // D is hardwired to O5; Q leaves on <L>MUX (OUTMUX=<L>5Q).
+                    let ff_type = c.params["FF_TYPE"].as_str();
+                    // The 5FF element is FF-only and has no cfg values in ISE.
+                    s.set(&format!("{l}5FF"), &[&c.name, ""]);
+                    let srinit = if matches!(ff_type, "FDSE" | "FDPE") { "SRINIT1" } else { "SRINIT0" };
+                    s.set(&format!("{l}5FFSRINIT"), &["", srinit]);
+                    s.set("SYNC_ATTR", &["", if matches!(ff_type, "FDRE" | "FDSE") { "SYNC" } else { "ASYNC" }]);
+                    s.set("CLKINV", &["", "CLK"]);
+                    if routed {
+                        cands.insert((ci, "Q".into()), site_cand(format!("{l}MUX"), true));
+                        for (port, pin) in [("CK", "CLK"), ("CE", "CE"), ("SR", "SR")] {
+                            if c.conns.contains_key(port) {
+                                cands.insert((ci, port.into()), site_cand(pin.into(), false));
+                            }
+                        }
+                        continue;
+                    }
+                    s.set(&format!("{l}OUTMUX"), &["", &format!("{l}5Q")]);
+                    pins.insert((ci, "Q".into()), (inst.clone(), format!("{l}MUX")));
+                    pins.insert((ci, "CK".into()), (inst.clone(), "CLK".into()));
+                    if c.conns.get("CE").is_some_and(|&ni| net_const(ni) != Some(true)) {
+                        s.set("CEUSED", &["", "0"]);
+                        pins.insert((ci, "CE".into()), (inst.clone(), "CE".into()));
+                    }
+                    if c.conns.get("SR").is_some_and(|&ni| net_const(ni) != Some(false)) {
+                        s.set("SRUSED", &["", "0"]);
+                        pins.insert((ci, "SR".into()), (inst.clone(), "SR".into()));
+                    }
                 } else {
-                    assert_eq!(&sub[1..], "FF", "{}: only main FF bels are supported", c.name);
+                    assert_eq!(&sub[1..], "FF", "{}: unexpected FF bel", c.name);
                     let ff_type = c.params["FF_TYPE"].as_str();
                     s.set(&format!("{l}FF"), &[&c.name, "#FF"]);
                     let srinit = if matches!(ff_type, "FDSE" | "FDPE") { "SRINIT1" } else { "SRINIT0" };
