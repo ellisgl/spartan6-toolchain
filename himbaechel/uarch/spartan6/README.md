@@ -7,22 +7,23 @@ Spartan-6 database.
 ## Status
 
 - **Devices:** xc6slx9 only (`--device xc6slx9-2tqg144`).
-- **Supported:** LUT1–6 (with LUT6/LUT5 pairing), FDRE/FDSE/FDCE/FDPE
-  (including the 5FFs behind paired LUT5s), IBUF/IBUFG/OBUF/OBUFT/IOBUF with
-  LVTTL/LVCMOS33/LVCMOS25, PULLUP/PULLDOWN, DRIVE, SLEW, BUFG and the global
-  clock network.
-- **Not yet:** CARRY4, MUXF7/F8, SRL/LUTRAM, BRAM, DSP, DCM/PLL, timing (unit
-  delays only). Synthesize with
-  `synth_xilinx -family xc6s -nocarry -nowidelut -nosrl -nolutram -nobram -nodsp`.
+- **Supported:** everything `synth_xilinx -family xc6s` emits by default:
+  LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), CARRY4, MUXF7/MUXF8,
+  RAMB16BWER/RAMB8BWER, DSP48A1, RAM64X1S, RAM32M, SRLC32E, SRL16E, I/O
+  (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25, PULLUP/PULLDOWN, DRIVE,
+  SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180) and
+  PLL_BASE/PLL_ADV (COMPENSATION INTERNAL).
+- **Not yet:** DSP and SRL cascades, the other LUTRAM primitives, latches,
+  clock inversion, DCM DLL outputs, timing (unit delays only).
 - **Checked against ISE 14.7:** designs placed and routed here are converted
   to XDL and pass ISE's DRC, and the open bitstream writer's output is
   byte-identical to ISE bitgen's for the same placement and routing. Test
-  designs (UART echo, tristate/pull-up I/O) pass on hardware.
+  designs for each feature pass on hardware (Mojo V3).
 
 ## Usage
 
 ```
-yosys -p "synth_xilinx -family xc6s -top top -nocarry -nowidelut -nosrl -nolutram -nobram -nodsp -json synth.json" top.v
+yosys -p "synth_xilinx -family xc6s -top top -json synth.json" top.v
 nextpnr-himbaechel --device xc6slx9-2tqg144 --chipdb chipdb-xc6slx9.bin \
     --json synth.json -o ucf=top.ucf --write routed.json
 ```
@@ -51,8 +52,8 @@ pseudo-pips:
 
 - per letter A–D: `SLICE_LUT` (LUT6, z+0; LUT5, z+1), `SLICE_FF` (FF, z+2;
   5FF, z+3);
-- `SLICE_F7MUX`/`SLICE_F8MUX` and `CARRY4` in SLICEL/SLICEM (not used by the
-  packer yet).
+- `SLICE_F7MUX`/`SLICE_F8MUX` and `CARRY4` in SLICEL/SLICEM; SLICEM LUT6
+  bels also carry the RAM pins (write address, DI1/DI2, WE, CLK, MC31, O5).
 
 The z layout is `0x100 + 0x40 * slice + 8 * letter + kind` (`spartan6.h`).
 

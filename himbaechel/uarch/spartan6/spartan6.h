@@ -38,6 +38,15 @@ inline int kind(int z) { return (z - BASE) % 8; } // only meaningful below F7AMU
 inline int letter(int z) { return ((z - BASE) % SLICE_STRIDE) / 8; }
 } // namespace s6z
 
+// LUT helpers shared by LUT pairing (pack.cc) and carry packing (carry.cc).
+namespace s6lut {
+// Distinct input nets of a LUT in pin order; false if it has 6 or a table
+// input is unconnected.
+bool inputs(CellInfo *ci, std::vector<NetInfo *> &nets);
+// Rewrite a LUT as a 5-input table over `merged` (connected to A1..A5).
+void remap(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged);
+} // namespace s6lut
+
 struct Spartan6Impl : HimbaechelAPI
 {
     ~Spartan6Impl() {};
@@ -51,6 +60,11 @@ struct Spartan6Impl : HimbaechelAPI
     bool isValidBelForCellType(IdString cell_type, BelId bel) const override;
     BelBucketId getBelBucketForCellType(IdString cell_type) const override;
     bool isBelLocationValid(BelId bel, bool explain_invalid = false) const override;
+    const CellInfo *cell_at(int x, int y, int z) const;
+    bool slice_controls_ok(int x, int y, int base, bool explain_invalid) const;
+    bool slice_bypass_ok(int x, int y, int base, bool explain_invalid) const;
+    bool getClusterPlacement(ClusterId cluster, BelId root_bel,
+                             std::vector<std::pair<CellInfo *, BelId>> &placement) const override;
 
     std::string getDefaultRouter() const override { return "router2"; }
 
@@ -60,8 +74,15 @@ struct Spartan6Impl : HimbaechelAPI
     void pack_clocking();
     void pack_logic();
     void pack_lut_pairs();
-    void place_bufgs_for_pad(CellInfo *iob);
-    pool<BelId> used_bufgmux;
+    void pack_carries();
+    void pack_wide();
+    void pack_bram();
+    void pack_dsp();
+    void pack_lutram();
+    void init_carry_next();
+    void pack_cmt();
+    void place_clock_tree(WireId src, NetInfo *net, const std::string &from);
+    pool<BelId> used_clock_bels;
 
     // Per-cell data cached for fast validity checks.
     struct FFInfo
@@ -74,6 +95,31 @@ struct Spartan6Impl : HimbaechelAPI
     // Constraints read from UCF, keyed by top-level port name.
     dict<IdString, dict<IdString, Property>> ucf_attrs;
     pool<BelId> bonded_iobs;
+
+    // Carry chains (carry.cc): CARRY4 bel -> the CARRY4 bel its CO3 feeds,
+    // and each chain's members as (cell, step along the chain, absolute z).
+    dict<BelId, BelId> carry_next;
+    struct CarryMember
+    {
+        CellInfo *cell;
+        int step;
+        int z;
+    };
+    struct CarryChain
+    {
+        std::vector<CarryMember> members;
+    };
+    dict<ClusterId, CarryChain> carry_chains;
+
+    // Lone MUXF7 clusters (wide.cc): the LUTs on its I1 and I0, which go to
+    // LUTs A/B or C/D depending on which F7 mux the root lands on.
+    struct F7Cluster
+    {
+        CellInfo *lut1, *lut0;
+    };
+    dict<ClusterId, F7Cluster> f7_clusters;
+    bool place_f7_cluster(ClusterId cluster, BelId root_bel,
+                          std::vector<std::pair<CellInfo *, BelId>> &placement) const;
 
     HimbaechelHelpers h;
 };

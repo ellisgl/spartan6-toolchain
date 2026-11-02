@@ -1,0 +1,278 @@
+/*
+ *  nextpnr -- Next Generation Place and Route
+ *
+ *  Spartan-6 himbaechel uarch: distributed RAM and shift registers (SLICEM).
+ *
+ *  Permission to use, copy, modify, and/or distribute this software for any
+ *  purpose with or without fee is hereby granted, provided that the above
+ *  copyright notice and this permission notice appear in all copies.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ *  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ *  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ *  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ *  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ *  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include "log.h"
+#include "nextpnr.h"
+#include "util.h"
+
+#define HIMBAECHEL_CONSTIDS "uarch/spartan6/constids.inc"
+#include "himbaechel_constids.h"
+
+#include "spartan6.h"
+
+NEXTPNR_NAMESPACE_BEGIN
+
+// SLICEM LUTs as RAM or shift registers (cell type SLICE_LUTRAM, only on
+// SLICEM LUT6 bels, which have the extra pins). In a SLICEM all four LUTs
+// take their write address from the D LUT's input pins (WA = D1..D6), share
+// WE (WE or CE pin) and the slice clock. So:
+//   RAM64X1S: up to four with the same address, clock and WE share a slice;
+//             one of them is always the D LUT (its read address is the
+//             write address). RAMMODE RAM64.
+//   RAM32M:   the whole slice; per letter bit 0 is the DI1 -> O5 half and
+//             bit 1 the DI2 -> O6 half (A6 tied high). RAMMODE RAM32.
+//   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
+//             CE on WE. RAMMODE SRL32. Cascades (Q31) are not supported yet.
+//   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
+//             RAMMODE SRL16.
+
+namespace {
+const int Z_SLICEM = s6z::BASE; // SLICE[0]
+int lut6_z(int letter) { return Z_SLICEM + letter * 8 + s6z::LUT6; }
+
+void move_port(CellInfo *ci, IdString from, IdString to)
+{
+    if (ci->ports.count(from))
+        ci->renamePort(from, to);
+}
+
+void add_in(CellInfo *ci, IdString port, NetInfo *net)
+{
+    ci->ports[port].name = port;
+    ci->ports[port].type = PORT_IN;
+    if (net)
+        ci->connectPort(port, net);
+}
+
+std::string init_bits(const CellInfo *ci, IdString p, int n)
+{
+    std::string s(n, '0');
+    if (ci->params.count(p)) {
+        const Property &v = ci->params.at(p);
+        for (int i = 0; i < n && i < int(v.str.size()); i++)
+            s[n - 1 - i] = v.str[i] == Property::S1 ? '1' : '0';
+    }
+    return s;
+}
+} // namespace
+
+void Spartan6Impl::pack_lutram()
+{
+    NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
+    int n64 = 0, n32m = 0, nsrl = 0;
+    std::vector<CellInfo *> ram64, ram32m, srl;
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type == id_RAM64X1S)
+            ram64.push_back(ci);
+        else if (ci->type == id_RAM32M)
+            ram32m.push_back(ci);
+        else if (ci->type.in(id_SRLC32E, id_SRL16E))
+            srl.push_back(ci);
+        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D, id_RAM64X1D, id_RAM128X1S, id_RAM128X1D, id_RAM64M))
+            log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
+    }
+
+    auto to_lutram = [&](CellInfo *ci, const char *mode) {
+        ci->type = id_SLICE_LUTRAM;
+        ci->params[id_RAM_MODE] = std::string(mode);
+    };
+
+    // RAM64X1S: group by address, clock and WE.
+    dict<std::string, std::vector<CellInfo *>> groups;
+    for (CellInfo *ci : ram64) {
+        if (ci->params.count(id_IS_WCLK_INVERTED) && ci->params.at(id_IS_WCLK_INVERTED).as_int64() != 0)
+            log_error("RAM64X1S %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
+        std::string key;
+        for (IdString p : {id_A0, id_A1, id_A2, id_A3, id_A4, id_A5, id_WCLK, id_WE}) {
+            NetInfo *n = ci->getPort(p);
+            key += n ? n->name.str(ctx) : "-";
+            key += "|";
+        }
+        groups[key].push_back(ci);
+    }
+    for (auto &g : groups) {
+        auto &cells = g.second;
+        for (size_t base = 0; base < cells.size(); base += 4) {
+            CellInfo *root = nullptr;
+            for (size_t k = 0; k < 4 && base + k < cells.size(); k++) {
+                CellInfo *ci = cells[base + k];
+                static const IdString a[6] = {id_A0, id_A1, id_A2, id_A3, id_A4, id_A5};
+                static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+                static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+                std::vector<NetInfo *> addr;
+                for (int i = 0; i < 6; i++)
+                    addr.push_back(ci->getPort(a[i]));
+                for (int i = 0; i < 6; i++)
+                    ci->disconnectPort(a[i]);
+                for (int i = 0; i < 6; i++)
+                    ci->ports.erase(a[i]);
+                for (int i = 0; i < 6; i++) {
+                    add_in(ci, la[i], addr[i]);
+                    add_in(ci, wa[i], addr[i]);
+                }
+                move_port(ci, id_D, id_DI1);
+                move_port(ci, id_WCLK, id_CLK);
+                to_lutram(ci, "RAM64");
+                int letter = 3 - int(k); // D first, then C, B, A
+                if (!root) {
+                    root = ci;
+                    ci->cluster = ci->name;
+                    ci->constr_abs_z = true;
+                    ci->constr_z = lut6_z(letter);
+                } else {
+                    ci->cluster = root->name;
+                    root->constr_children.push_back(ci);
+                    ci->constr_x = 0;
+                    ci->constr_y = 0;
+                    ci->constr_abs_z = true;
+                    ci->constr_z = lut6_z(letter);
+                }
+                n64++;
+            }
+        }
+    }
+
+    // RAM32M: four new LUT cells (D first), then the original goes.
+    for (CellInfo *ci : ram32m) {
+        if (ci->params.count(id_IS_WCLK_INVERTED) && ci->params.at(id_IS_WCLK_INVERTED).as_int64() != 0)
+            log_error("RAM32M %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
+        NetInfo *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
+        std::vector<NetInfo *> waddr;
+        for (int i = 0; i < 5; i++)
+            waddr.push_back(ci->getPort(ctx->idf("ADDRD[%d]", i)));
+        static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+        static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+        CellInfo *root = nullptr;
+        for (int letter = 3; letter >= 0; letter--) {
+            char x = "ABCD"[letter];
+            CellInfo *lut = ctx->createCell(ctx->idf("%s$%c", ci->name.c_str(ctx), x), id_SLICE_LUTRAM);
+            for (int i = 0; i < 5; i++) {
+                add_in(lut, la[i], ci->getPort(ctx->idf("ADDR%c[%d]", x, i)));
+                add_in(lut, wa[i], waddr[i]);
+            }
+            add_in(lut, id_A6, vcc);
+            add_in(lut, id_WA6, vcc);
+            add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c[0]", x)));
+            add_in(lut, id_DI2, ci->getPort(ctx->idf("DI%c[1]", x)));
+            add_in(lut, id_WE, we);
+            add_in(lut, id_CLK, wclk);
+            for (auto &o : {std::make_pair(0, id_O5), std::make_pair(1, id_O)}) {
+                IdString from = ctx->idf("DO%c[%d]", x, o.first);
+                NetInfo *n = ci->getPort(from);
+                lut->addOutput(o.second);
+                if (n) {
+                    ci->disconnectPort(from);
+                    lut->connectPort(o.second, n);
+                }
+            }
+            // INIT_x interleaves the halves: bit 2i -> O5 (lower half of the
+            // LUT table), bit 2i+1 -> O6 (upper half).
+            std::string init = init_bits(ci, ctx->idf("INIT_%c", x), 64); // MSB first
+            std::string lut_init(64, '0');
+            for (int i = 0; i < 32; i++) {
+                lut_init[63 - i] = init[63 - 2 * i];
+                lut_init[63 - (32 + i)] = init[63 - (2 * i + 1)];
+            }
+            lut->params[id_INIT] = Property::from_string(lut_init);
+            lut->params[id_RAM_MODE] = std::string("RAM32");
+            if (!root) {
+                root = lut;
+                lut->cluster = lut->name;
+                lut->constr_abs_z = true;
+                lut->constr_z = lut6_z(letter);
+            } else {
+                lut->cluster = root->name;
+                root->constr_children.push_back(lut);
+                lut->constr_x = 0;
+                lut->constr_y = 0;
+                lut->constr_abs_z = true;
+                lut->constr_z = lut6_z(letter);
+            }
+        }
+        std::vector<IdString> ports;
+        for (auto &p : ci->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            ci->disconnectPort(p);
+        ctx->cells.erase(ci->name);
+        n32m++;
+    }
+
+    // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
+    for (CellInfo *ci : srl) {
+        bool srl16 = ci->type == id_SRL16E;
+        if (srl16) {
+            if (ci->params.count(id_IS_CLK_INVERTED) && ci->params.at(id_IS_CLK_INVERTED).as_int64() != 0)
+                log_error("SRL16E %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
+            static const IdString a16[4] = {id_A0, id_A1, id_A2, id_A3};
+            static const IdString la16[4] = {id_A2, id_A3, id_A4, id_A5};
+            std::vector<NetInfo *> addr;
+            for (int i = 0; i < 4; i++)
+                addr.push_back(ci->getPort(a16[i]));
+            for (int i = 0; i < 4; i++)
+                if (ci->ports.count(a16[i])) {
+                    ci->disconnectPort(a16[i]);
+                    ci->ports.erase(a16[i]);
+                }
+            for (int i = 0; i < 4; i++)
+                add_in(ci, la16[i], addr[i]);
+            add_in(ci, id_A1, vcc);
+            add_in(ci, id_A6, vcc);
+            move_port(ci, id_D, id_DI2);
+            move_port(ci, id_CE, id_WE);
+            move_port(ci, id_Q, id_O);
+            to_lutram(ci, "SRL16");
+            nsrl++;
+            continue;
+        }
+        NetInfo *q31 = ci->getPort(id_Q31);
+        if (q31 && q31->users.entries())
+            log_error("SRLC32E %s: cascades (Q31) are not supported yet\n", ctx->nameOf(ci));
+        if (ci->params.count(id_IS_CLK_INVERTED) && ci->params.at(id_IS_CLK_INVERTED).as_int64() != 0)
+            log_error("SRLC32E %s: inverted clock is not supported yet\n", ctx->nameOf(ci));
+        static const IdString a[5] = {ctx->id("A[0]"), ctx->id("A[1]"), ctx->id("A[2]"), ctx->id("A[3]"),
+                                      ctx->id("A[4]")};
+        static const IdString la[5] = {id_A2, id_A3, id_A4, id_A5, id_A6};
+        std::vector<NetInfo *> addr;
+        for (int i = 0; i < 5; i++)
+            addr.push_back(ci->getPort(a[i]));
+        for (int i = 0; i < 5; i++)
+            if (ci->ports.count(a[i])) {
+                ci->disconnectPort(a[i]);
+                ci->ports.erase(a[i]);
+            }
+        for (int i = 0; i < 5; i++)
+            add_in(ci, la[i], addr[i]);
+        add_in(ci, id_A1, vcc);
+        move_port(ci, id_D, id_DI1);
+        move_port(ci, id_CE, id_WE);
+        move_port(ci, id_Q, id_O);
+        if (ci->ports.count(id_Q31)) {
+            ci->disconnectPort(id_Q31);
+            ci->ports.erase(id_Q31);
+        }
+        // INIT stays 32 bits; the writers place it in the LUT.
+        to_lutram(ci, "SRL32");
+        nsrl++;
+    }
+    if (n64 || n32m || nsrl)
+        log_info("Packed %d RAM64X1S, %d RAM32M and %d SRLs into SLICEM LUTs.\n", n64, n32m, nsrl);
+}
+
+NEXTPNR_NAMESPACE_END

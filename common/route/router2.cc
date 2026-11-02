@@ -580,8 +580,15 @@ struct Router2
             return true;
         if (wire_data(wire).reserved_net != -1 && wire_data(wire).reserved_net != net->udata)
             return true; // reserved for another net
+        // A constant net can start from any wire tied to its value.
+        if (net->constant_value != IdString() && ctx->getWireConstantValue(wire) == net->constant_value)
+            return false;
+        // Only the driver's own output pin counts: another output of the same
+        // bel (e.g. CARRY4 CO3 next to the O2 actually driving the net) can't
+        // drive it.
         for (auto bp : ctx->getWireBelPins(wire))
-            if ((net->driver.cell == nullptr || bp.bel == net->driver.cell->bel) &&
+            if ((net->driver.cell == nullptr ||
+                 (bp.bel == net->driver.cell->bel && wire == nets.at(net->udata).src_wire)) &&
                 ctx->getBelPinType(bp.bel, bp.pin) != PORT_IN)
                 return false;
         for (auto p : ctx->getPipsUphill(wire))

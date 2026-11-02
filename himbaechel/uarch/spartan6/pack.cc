@@ -143,75 +143,25 @@ void Spartan6Impl::pack_clocking()
         NetInfo *o = ci->getPort(id_I);
         if (!o || o->users.empty())
             continue;
-        bool only_bufg = true;
+        // Only clock loads (BUFGs, DCM/PLL clock inputs): use the dedicated
+        // clock-pad path.
+        bool only_clock = true;
         for (auto &usr : o->users)
-            if (usr.cell->type != id_BUFGMUX)
-                only_bufg = false;
-        if (!only_bufg)
+            if (!(usr.cell->type == id_BUFGMUX || (usr.cell->type == id_DCM && usr.port == id_CLKIN) ||
+                  (usr.cell->type == id_PLL && usr.port == id_CLKIN1) ||
+                  (usr.cell->type == id_BUFIO2 && usr.port == id_I)))
+                only_clock = false;
+        if (!only_clock)
             continue;
         ci->renamePort(id_I, id_GCLK_I);
-        if (ci->attrs.count(id_BEL))
-            place_bufgs_for_pad(ci);
+        if (ci->attrs.count(id_BEL)) {
+            BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());
+            place_clock_tree(ctx->getBelPinWire(pad_bel, id_GCLK_I), ci->getPort(id_GCLK_I), ctx->nameOfBel(pad_bel));
+        }
     }
     log_info("Packed %d global buffers.\n", count);
 }
 
-// Each BUFGMUX input selects from a few dedicated clock sources, so a BUFG
-// fed by a clock pad must sit on a BUFGMUX that pad can reach. Search the
-// routing graph from the pad's GCLK_I wire and constrain each BUFG it feeds.
-void Spartan6Impl::place_bufgs_for_pad(CellInfo *iob)
-{
-    BelId pad_bel = ctx->getBelByNameStr(iob->attrs.at(id_BEL).as_string());
-    WireId src = ctx->getBelPinWire(pad_bel, id_GCLK_I);
-    // Breadth-first over dedicated clock wiring; a few hops suffice
-    // (pad -> BUFIO2 path -> BUFGMUX input mux).
-    dict<WireId, int> dist{{src, 0}};
-    std::vector<WireId> frontier{src};
-    for (int depth = 1; depth <= 4 && !frontier.empty(); depth++) {
-        std::vector<WireId> next;
-        for (WireId w : frontier)
-            for (PipId pip : ctx->getPipsDownhill(w)) {
-                WireId dst = ctx->getPipDstWire(pip);
-                if (!dist.count(dst)) {
-                    dist[dst] = depth;
-                    next.push_back(dst);
-                }
-            }
-        frontier = std::move(next);
-    }
-    NetInfo *clk = iob->getPort(id_GCLK_I);
-    for (auto &usr : clk->users) {
-        CellInfo *bufg = usr.cell;
-        if (bufg->attrs.count(id_BEL))
-            continue;
-        BelId best;
-        IdString best_pin;
-        int best_dist = 1000;
-        for (BelId bel : ctx->getBels()) {
-            if (ctx->getBelType(bel) != id_BUFGMUX || used_bufgmux.count(bel))
-                continue;
-            for (IdString pin : {id_I0, id_I1}) {
-                auto it = dist.find(ctx->getBelPinWire(bel, pin));
-                if (it != dist.end() && it->second < best_dist) {
-                    best = bel;
-                    best_pin = pin;
-                    best_dist = it->second;
-                }
-            }
-        }
-        if (best == BelId())
-            log_error("No BUFGMUX is reachable from clock pad %s for %s\n", ctx->nameOfBel(pad_bel),
-                      ctx->nameOf(bufg));
-        if (best_pin == id_I1)
-            bufg->renamePort(id_I0, id_I1);
-        bufg->attrs[id_BEL] = ctx->getBelName(best).str(ctx);
-        used_bufgmux.insert(best);
-        log_info("    %s -> %s.%s (fed by %s)\n", ctx->nameOf(bufg), ctx->nameOfBel(best), best_pin.c_str(ctx),
-                 ctx->nameOfBel(pad_bel));
-    }
-}
-
-// LUTs and FFs -> slice sub-bels.
 void Spartan6Impl::pack_logic()
 {
     int luts = 0, ffs = 0;
@@ -250,7 +200,7 @@ void Spartan6Impl::pack_logic()
                 ci->disconnectPort(id_SR);
             ci->type = id_SLICE_FF;
             ffs++;
-        } else if (ci->type.in(id_LDCE, id_LDPE, id_CARRY4, id_MUXF7, id_MUXF8)) {
+        } else if (ci->type.in(id_LDCE, id_LDPE)) {
             log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
         }
     }
@@ -262,10 +212,10 @@ void Spartan6Impl::pack_logic()
 // match); the LUT6 half (O6) has A6 tied high and the LUT5 half (O5) reads
 // the lower half of the table. The pair is a cluster: root on the LUT6 bel,
 // child (type SLICE_LUT5) on the LUT5 bel of the same letter.
-namespace {
+namespace s6lut {
 // Distinct input nets of a LUT in pin order, or false if it can't be paired
 // (6 inputs, or a table input left unconnected).
-bool lut_inputs(CellInfo *ci, std::vector<NetInfo *> &nets)
+bool inputs(CellInfo *ci, std::vector<NetInfo *> &nets)
 {
     static const IdString a_ports[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
     const Property &init = ci->params.at(id_INIT);
@@ -288,20 +238,8 @@ bool lut_inputs(CellInfo *ci, std::vector<NetInfo *> &nets)
     return nets.size() <= 5;
 }
 
-// The FF a LUT drives, if that FF's D is the LUT output's only load.
-CellInfo *sole_ff_load(CellInfo *lut)
-{
-    NetInfo *o = lut->getPort(id_O);
-    if (!o || o->users.entries() != 1)
-        return nullptr;
-    auto &usr = *o->users.begin();
-    if (usr.cell->type != id_SLICE_FF || usr.port != id_D || usr.cell->cluster != ClusterId())
-        return nullptr;
-    return usr.cell;
-}
-
 // Rewrite a LUT as a 5-input table over `merged` (on A1..A5).
-void remap_lut(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged)
+void remap(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged)
 {
     static const IdString a_ports[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
     const Property init = ci->params.at(id_INIT);
@@ -329,6 +267,21 @@ void remap_lut(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged)
         ci->connectPort(a_ports[i], merged[i]);
     }
 }
+} // namespace s6lut
+
+namespace {
+// The FF a LUT drives, if that FF's D is the LUT output's only load.
+CellInfo *sole_ff_load(CellInfo *lut)
+{
+    NetInfo *o = lut->getPort(id_O);
+    if (!o || o->users.entries() != 1)
+        return nullptr;
+    auto &usr = *o->users.begin();
+    if (usr.cell->type != id_SLICE_FF || usr.port != id_D || usr.cell->cluster != ClusterId())
+        return nullptr;
+    return usr.cell;
+}
+
 } // namespace
 
 void Spartan6Impl::pack_lut_pairs()
@@ -343,7 +296,7 @@ void Spartan6Impl::pack_lut_pairs()
     int pairs = 0, ff5s = 0;
     for (auto &cell : ctx->cells) {
         CellInfo *a = cell.second.get();
-        if (a->type != id_SLICE_LUT || done.count(a->name) || !lut_inputs(a, a_in))
+        if (a->type != id_SLICE_LUT || a->cluster != ClusterId() || done.count(a->name) || !s6lut::inputs(a, a_in))
             continue;
         // Best partner: most shared inputs, then fewest merged inputs.
         CellInfo *best = nullptr;
@@ -353,7 +306,8 @@ void Spartan6Impl::pack_lut_pairs()
                 continue;
             for (auto &usr : n->users) {
                 CellInfo *b = usr.cell;
-                if (b == a || b->type != id_SLICE_LUT || done.count(b->name) || !lut_inputs(b, b_in))
+                if (b == a || b->type != id_SLICE_LUT || b->cluster != ClusterId() || done.count(b->name) ||
+                    !s6lut::inputs(b, b_in))
                     continue;
                 int shared = 0;
                 for (NetInfo *m : b_in)
@@ -375,14 +329,14 @@ void Spartan6Impl::pack_lut_pairs()
         // only load is a FF there.
         if (sole_ff_load(a) && !sole_ff_load(best))
             std::swap(a, best);
-        lut_inputs(a, a_in);
-        lut_inputs(best, b_in);
+        s6lut::inputs(a, a_in);
+        s6lut::inputs(best, b_in);
         merged = a_in;
         for (NetInfo *m : b_in)
             if (std::find(merged.begin(), merged.end(), m) == merged.end())
                 merged.push_back(m);
-        remap_lut(ctx, a, merged);
-        remap_lut(ctx, best, merged);
+        s6lut::remap(ctx, a, merged);
+        s6lut::remap(ctx, best, merged);
         a->ports[id_A6].name = id_A6;
         a->ports[id_A6].type = PORT_IN;
         a->connectPort(id_A6, vcc);

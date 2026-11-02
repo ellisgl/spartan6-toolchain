@@ -1,9 +1,15 @@
 set(SOURCES
+    bram.cc
+    carry.cc
+    cmt.cc
     constids.inc
+    dsp.cc
+    lutram.cc
     pack.cc
     spartan6.cc
     spartan6.h
     ucf.cc
+    wide.cc
 )
 
 add_nextpnr_himbaechel_microarchitecture(${uarch}
