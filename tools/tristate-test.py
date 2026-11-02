@@ -38,7 +38,9 @@ def main():
         cmds += r
     bad = 0
     with serial.Serial(args.port, 115200, timeout=0.5) as port:  # USB side baud is ignored
-        time.sleep(0.2)
+        # The AVR sends a few bytes while its bridge starts up; let the
+        # design answer them, then drop the answers.
+        time.sleep(0.5)
         port.reset_input_buffer()
         for i, cmd in enumerate(cmds):
             port.write(bytes([cmd]))

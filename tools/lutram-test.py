@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Hardware check for tests/lutram (distributed RAM, shift registers).
+
+    tools/lutram-test.py [--port /dev/ttyACM0] [--ops 1500]
+
+Load the design first (make load TEST=lutram).
+"""
+
+import argparse
+import random
+import sys
+import time
+
+import serial
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--port", default="/dev/ttyACM0")
+    ap.add_argument("--ops", type=int, default=1500)
+    args = ap.parse_args()
+
+    m64 = [None] * 64
+    m32 = [None] * 32
+    sr = [None] * 24  # unknown until shifted in
+    pat = 0xA5C3
+    bad = 0
+    n = 0
+    with serial.Serial(args.port, 115200, timeout=0.5) as port:
+        time.sleep(0.5)
+        port.reset_input_buffer()
+
+        def write(a, d):
+            port.write(bytes([ord("W"), a, d]))
+            if port.read(1) != b"K":
+                print("FAIL: write not acknowledged")
+                sys.exit(1)
+            m64[a % 64] = d
+            m32[a % 32] = d
+
+        # Fill both memories first so every read has a known value.
+        for a in range(64):
+            write(a, random.getrandbits(8))
+        for op in range(args.ops):
+            kind = random.choice("WRSP")
+            n += 1
+            if kind == "W":
+                write(random.getrandbits(8), random.getrandbits(8))
+            elif kind == "R":
+                a = random.getrandbits(8)
+                port.write(bytes([ord("R"), a]))
+                got = port.read(2)
+                want = bytes([m64[a % 64], m32[a % 32]])
+                if got != want:
+                    bad += 1
+                    if bad <= 8:
+                        print(f"  R {a:#04x}: got {got.hex()} want {want.hex()}")
+            elif kind == "P":
+                port.write(b"P")
+                got = port.read(1)
+                want = bytes([pat >> 15 & 1])
+                pat = (pat << 1 | pat >> 15) & 0xFFFF
+                if got != want:
+                    bad += 1
+                    if bad <= 8:
+                        print(f"  P: got {got.hex()} want {want.hex()}")
+            else:
+                d = random.getrandbits(8)
+                port.write(bytes([ord("S"), d]))
+                got = port.read(1)
+                want = sr[-1]
+                sr = [d] + sr[:-1]
+                if want is not None and got != bytes([want]):
+                    bad += 1
+                    if bad <= 8:
+                        print(f"  S: got {got.hex()} want {want:02x}")
+                elif not got:
+                    print("FAIL: no reply to S")
+                    sys.exit(1)
+    if bad:
+        print(f"FAIL: {bad} of {n} operations wrong")
+        sys.exit(1)
+    print(f"PASS: {n} RAM/shift-register operations correct")
+
+
+if __name__ == "__main__":
+    main()

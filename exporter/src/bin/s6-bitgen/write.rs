@@ -203,7 +203,20 @@ pub fn write_bitstream(bs: &Bitstream) -> Vec<u8> {
     w.fdri(&data);
     w.nops(24);
 
-    assert!(bs.frame_fixups.is_empty(), "frame fixups are not supported");
+    // Frame fixups: frames written a second time with some bits changed (ISE
+    // loads RAMB8 tiles combined, then splits them). Each is its own FAR +
+    // FDRI of the frame and one padding frame.
+    let mut fixup_frames: Vec<usize> = bs.frame_fixups.keys().map(|&(f, _)| f).collect();
+    fixup_frames.sort();
+    fixup_frames.dedup();
+    for fi in fixup_frames {
+        let bit = |b: usize| *bs.frame_fixups.get(&(fi, b)).unwrap_or(&bs.frame_data[fi * FRAME_LEN + b]);
+        let mut data = frame_words(bit, FRAME_LEN);
+        data.extend(&pad);
+        w.write2(reg::FAR, far(bs.frame_info[fi]));
+        w.cmd(cmd::WCFG);
+        w.fdri(&data);
+    }
 
     w.cmd(cmd::GRESTORE);
     w.cmd(cmd::DGHIGH);

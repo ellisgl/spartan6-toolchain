@@ -165,6 +165,23 @@ impl RawGraph {
         }
     }
 
+    /// Debug: every test pip, per tile kind (kind name, from, to).
+    pub fn debug_test_pips(&self) {
+        let mut seen = std::collections::BTreeSet::new();
+        for t in self.part.tiles.values() {
+            let tk = &self.part.tile_kinds[t.kind];
+            for (_, &(wf, wt), pip) in &tk.pips {
+                if pip.is_test {
+                    let kind = self.part.tile_kinds.key(t.kind).clone();
+                    seen.insert((kind, self.part.wires[wf].clone(), self.part.wires[wt].clone()));
+                }
+            }
+        }
+        for (k, f, t) in seen {
+            println!("{k} {f} -> {t}");
+        }
+    }
+
     /// The ISE wire (tile, wire name) of a site pin, by site name.
     pub fn site_pin_wire(&self, site: &str, pin: &str) -> Option<(String, String)> {
         let &(crd, si) = self.site_by_name.get(site)?;

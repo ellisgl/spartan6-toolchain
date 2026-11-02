@@ -26,7 +26,7 @@ Spartan-6 logic resources are close to 7-series: 4×LUT6, 8 storage elements, CA
 
 ### 3. Packer
 
-> **Status (Nov 1):** first version, now in the nextpnr fork (github.com/ellisgl/nextpnr, branch `spartan6`), using sub-bels for slices. Blinky packs, places and routes on the xc6slx9 with the Mojo V3 pinout. Supported: LUTs (LUT6 bels only), FFs, simple I/O and BUFG. **Nov 2:** LUT6/LUT5 pairing added (two LUTs with ≤5 merged inputs share a LUT6 site, A6 tied high), byte-identical to ISE and passing the hardware tests. 5FFs added the same day: a FF that is the sole load of a LUT5 half goes on that letter's 5FF; `tests/fill` (5824 FFs, 7451 LUTs) only fits this way and is byte-identical to ISE. Not supported yet: CARRY4, F7/F8, SRL/LUTRAM, BRAM, DSP and clock management (DCM/PLL).
+> **Status (Nov 1):** first version, now in the nextpnr fork (github.com/ellisgl/nextpnr, branch `spartan6`), using sub-bels for slices. Blinky packs, places and routes on the xc6slx9 with the Mojo V3 pinout. Supported: LUTs (LUT6 bels only), FFs, simple I/O and BUFG. **Nov 2:** LUT6/LUT5 pairing added (two LUTs with ≤5 merged inputs share a LUT6 site, A6 tied high), byte-identical to ISE and passing the hardware tests. 5FFs added the same day: a FF that is the sole load of a LUT5 half goes on that letter's 5FF; `tests/fill` (5824 FFs, 7451 LUTs) only fits this way and is byte-identical to ISE. **Nov 2 (later):** CARRY4, MUXF7/F8, BRAM (RAMB16/RAMB8), DSP48A1, DCM_SP (CLKFX) and PLL_BASE, and SLICEM distributed RAM / shift registers added; every test design is byte-identical to ISE bitgen and passes its hardware test (see README). Not done: timing (no delay data), and the limits listed in the README.
 
 This is where the Spartan-6-specific logic lives:
 

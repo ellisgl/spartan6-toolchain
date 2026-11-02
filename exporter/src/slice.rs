@@ -13,12 +13,16 @@
 //!   X5FF  D <- O5 (fixed, no mux in prjcombine), Q -> internal X5Q
 //!   site pin XMUX <- MUX_XOUT {X5Q, O6, O5, XOR, CY, F7/F8}
 //! Carry slices (SLICEL/SLICEM, SLICE[0]) add CARRY4, with DI from MUX_XCY0
-//! and CYINIT from PRECYINIT {CONST_0, CONST_1, AX}. CIN is joined to the
+//! and its carry input CI from CYINIT {CIN, PRECYINIT {CONST_0, CONST_1, AX}}. CIN is joined to the
 //! slice below's COUT by a node built in main.
 //! Wide-function slices add F7AMUX (A, B -> A outputs), F7BMUX (C, D -> C
 //! outputs) and F8MUX (both F7s -> B outputs).
 //!
-//! Not modelled yet: SLICEM distributed RAM / SRL (DI pins, WE, MC31 cascade).
+//! SLICEM (distributed RAM / shift registers): each LUT6 sub-bel also gets
+//! WA1..WA6 (the D LUT's input pins, shared by all four), WA7/WA8 (CX/BX),
+//! DI1 (through MUX_<L>DI1: own bypass pin, or ALT = the shift cascade of
+//! the letter above; the D LUT's DI1 is DX), DI2 (pin <L>I), WE (MUX_WE: WE
+//! or CE pin), CLK, the shift cascade output MC31, and O5 (32-bit dual mode).
 
 use prjcombine_interconnect::db::{Bel, BelAttribute, BelAttributeType, BelClass, IntDb};
 
@@ -93,6 +97,7 @@ pub fn expand(
             .wire
     };
     let has_carry = !enum_opts(db, bcls, bel, "MUX_ACY0").is_empty();
+    let has_ram = !enum_opts(db, bcls, bel, "MUX_WE").is_empty();
     let has_wide = enum_opts(db, bcls, bel, "MUX_FFA").iter().any(|v| v == "F7");
 
     let mut bels: Vec<OutBel> = vec![];
@@ -124,6 +129,45 @@ pub fn expand(
 
     let (clk, ce, sr) = (pin("CLK"), pin("CE"), pin("SR"));
     let mut carry_pins: Vec<(String, usize, &'static str)> = vec![];
+    // SLICEM: shared write enable, per-letter DI1 and shift cascade (MC31).
+    let (we_m, di1, mc31) = if has_ram {
+        let we_m = tb.pseudo_wire(format!("{prefix}.WE_M"));
+        for val in enum_opts(db, bcls, bel, "MUX_WE") {
+            let src = match val.as_str() {
+                "WE" => pin("WE"),
+                "CE" => ce,
+                other => panic!("unexpected MUX_WE option {other}"),
+            };
+            tb.pip(src, we_m, "SITE", false, vec!["SITE".into(), prefix.into(), "MUX_WE".into(), val]);
+        }
+        let di1: Vec<usize> = LETTERS
+            .iter()
+            .map(|&x| if x == 'D' { pin("DX") } else { tb.pseudo_wire(format!("{prefix}.{x}DI1")) })
+            .collect();
+        let mc31: Vec<usize> = LETTERS.iter().map(|&x| tb.pseudo_wire(format!("{prefix}.{x}MC31"))).collect();
+        // MUX_<L>DI1: own bypass pin, or ALT = the next letter up's data
+        // (B/C: DX; A: B's DI1) or its shift cascade (MC31 of B, C, D).
+        for (li, x) in ['A', 'B', 'C'].into_iter().enumerate() {
+            let attr = format!("MUX_{x}DI1");
+            for val in enum_opts(db, bcls, bel, &attr) {
+                let srcs = match val.as_str() {
+                    v if v == format!("{x}X") => vec![pin(&format!("{x}X"))],
+                    // ALT also carries the letter above's data (BDI1 / DX),
+                    // but ISE's DRC rejects that use in our XDL; only the
+                    // shift cascade is offered (the placer counts DI1 as
+                    // using the letter's own bypass pin).
+                    "ALT" => vec![mc31[li + 1]],
+                    other => panic!("unexpected {attr} option {other}"),
+                };
+                for src in srcs {
+                    tb.pip(src, di1[li], "SITE", false, vec!["SITE".into(), prefix.into(), attr.clone(), val.clone()]);
+                }
+            }
+        }
+        (Some(we_m), di1, mc31)
+    } else {
+        (None, vec![], vec![])
+    };
 
     for (li, x) in LETTERS.into_iter().enumerate() {
         let zl = zb + li * 8;
@@ -159,6 +203,20 @@ pub fn expand(
             .map(|(n, w)| (n, w, "IN"))
             .chain([("O", o6, "OUT")])
             .collect();
+        let mut lut6_pins = lut6_pins;
+        if has_ram {
+            for k in 1..=6 {
+                lut6_pins.push((["WA1", "WA2", "WA3", "WA4", "WA5", "WA6"][k - 1], pin(&format!("D{k}")), "IN"));
+            }
+            lut6_pins.push(("WA7", pin("CX"), "IN"));
+            lut6_pins.push(("WA8", pin("BX"), "IN"));
+            lut6_pins.push(("DI1", di1[li], "IN"));
+            lut6_pins.push(("DI2", pin(&format!("{x}I")), "IN"));
+            lut6_pins.push(("WE", we_m.unwrap(), "IN"));
+            lut6_pins.push(("CLK", clk, "IN"));
+            lut6_pins.push(("MC31", mc31[li], "OUT"));
+            lut6_pins.push(("O5", o5, "OUT"));
+        }
         add_bel(format!("{prefix}.{x}6LUT"), "SLICE_LUT", zl + Z_LUT6, lut6_pins);
         let lut5_pins: Vec<(&str, usize, &str)> = ["A1", "A2", "A3", "A4", "A5"]
             .into_iter()
@@ -181,7 +239,9 @@ pub fn expand(
                 "F7" | "F8" => wide,
                 v if v == format!("{x}X") => Some(bypass),
                 v if v == format!("{x}5Q") => Some(q5),
-                // NONE: output unused. MC31: SRL cascade, not modelled yet.
+                // The slice's shift cascade output (A's MC31), on D's muxes.
+                "MC31" if has_ram => Some(mc31[0]),
+                // NONE: output unused.
                 _ => None,
             }
         };
@@ -236,8 +296,20 @@ pub fn expand(
 
     if has_carry {
         assert_eq!(slice_idx, 0, "carry chain on {prefix}; expected SLICE[0] only");
+        // The chain's carry input is one mux, CYINIT: CIN (from the slice
+        // below) or PRECYINIT {0, 1, AX}. The CARRY4 bel gets a single CI pin
+        // behind it.
         let cin = tb.pseudo_wire(carry_in_wire());
-        let cyinit = tb.pseudo_wire(format!("{prefix}.CYINIT"));
+        let cyinit = tb.pseudo_wire(format!("{prefix}.PRECYINIT"));
+        let carry_in = tb.pseudo_wire(format!("{prefix}.CARRYIN"));
+        for val in enum_opts(db, bcls, bel, "CYINIT") {
+            let src = match val.as_str() {
+                "CIN" => cin,
+                "PRECYINIT" => cyinit,
+                other => panic!("unexpected CYINIT option {other}"),
+            };
+            tb.pip(src, carry_in, "SITE", false, vec!["SITE".into(), prefix.into(), "CYINIT".into(), val]);
+        }
         for val in enum_opts(db, bcls, bel, "PRECYINIT") {
             let src = match val.as_str() {
                 "CONST_0" => tb.const_wire("GND"),
@@ -247,7 +319,7 @@ pub fn expand(
             };
             tb.pip(src, cyinit, "SITE", false, vec!["SITE".into(), prefix.into(), "PRECYINIT".into(), val]);
         }
-        let mut pins: Vec<(&str, usize, &'static str)> = vec![("CI", cin, "IN"), ("CYINIT", cyinit, "IN")];
+        let mut pins: Vec<(&str, usize, &'static str)> = vec![("CI", carry_in, "IN")];
         pins.extend(carry_pins.iter().map(|(n, w, d)| (n.as_str(), *w, *d)));
         add_bel(format!("{prefix}.CARRY4"), "CARRY4", zb + Z_CARRY4, pins);
     }

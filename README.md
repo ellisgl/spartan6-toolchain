@@ -46,9 +46,26 @@ make pnr       TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
 make bit       TEST=cylon   # + s6-bitgen (no ISE)   -> build/cylon/design.bin
 make load      TEST=cylon   # + load into the Mojo's FPGA RAM
 make ise-check TEST=cylon   # ISE cross-check: XDL -> drc -> bitgen, must be byte-identical
-tools/uart-test.py          # hardware check for TEST=uart_echo (after make load)
-tools/tristate-test.py      # hardware check for TEST=tristate (P50/P51 left unconnected)
 ```
+
+Hardware tests (load the design with `make load TEST=<name>` first; each
+talks to the Mojo over its USB serial port):
+
+| Test design | Script | Covers |
+|---|---|---|
+| `uart_echo` | `tools/uart-test.py` | basic logic, I/O |
+| `tristate` | `tools/tristate-test.py` | OBUFT/IOBUF, pull-ups/downs (P50/P51 unconnected) |
+| `alu` | `tools/alu-test.py` | carry chains, DSP |
+| `rom` | `tools/rom-test.py` | MUXF7/MUXF8 |
+| `bram` | `tools/bram-test.py` | RAMB16BWER/RAMB8BWER, initial contents (slow: ~12 min) |
+| `dsp` | `tools/dsp-test.py` | DSP48A1 multiply and multiply-accumulate |
+| `clocks`, `clocks2` | `tools/clocks-test.py [--config 2]` | DCM_SP, PLL_BASE frequencies |
+| `lutram` | `tools/lutram-test.py` | RAM64X1S, RAM32M, SRLC32E, SRL16E |
+
+`fill` (no script) is a capacity test that only fits with LUT pairing and
+5FFs. Shared UART helpers are in `tests/common/uart.v` (they honour the
+AVR's `avr_rx_busy` and leave gaps between bytes: the bridge drops bytes
+otherwise).
 
 Only `make ise-check` needs ISE (see below). Its first run also dumps ISE's
 view of the device and builds prjcombine's naming database
@@ -142,11 +159,21 @@ Commands:
   every differing bit with its meaning.
 - **`s6-bitgen bits`:** lists a bitstream's set bits.
 
-Supported so far: LUT6s and LUT6/LUT5 pairs, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs, outputs,
-tristate outputs (OBUFT) and bidirectional pins (IOBUF), PULLUP/PULLDOWN,
-BUFG and global clock routing. Only LVTTL has been verified
-against ISE. Not supported yet: everything the packer doesn't support, plus
-`.bit` file headers and bitgen options other than the defaults.
+Supported: everything the packer supports (see the uarch section). Only LVTTL
+has been verified against ISE among the I/O standards. Details worth knowing:
+
+- **BRAM:** ISE's layout of RAMB16 contents (and its swizzle when a port is
+  36 bits wide); a tile used as RAMB8s is loaded combined and split by a
+  second write of one frame (frame fixups, also in `write.rs`).
+- **DCM/PLL:** fixed values as ISE 14.7 writes them, PLL counters computed
+  from the dividers, loop filter and lock settings from prjcombine's
+  `PLL_MULT` table (BANDWIDTH OPTIMIZED = HIGH column). Checked against ISE
+  for two configurations.
+- **LUTRAM/SRL:** `<L>RAMMODE`, and GLUTMASK in the HCLK tile of each column
+  region holding RAM/SRL LUTs.
+
+Not supported: `.bit` file headers and bitgen options other than the
+defaults.
 
 ## XDL output (`exporter/src/bin/s6-xdl/`)
 
@@ -251,8 +278,30 @@ primary source is kept, as an always-on pip) and factory-test wires
   SLEW, PULLUP, PULLDOWN. Bus syntax `led<0>` maps to `led[0]`.
 - **Packer:** maps IBUF/IBUFG/OBUF/OBUFT/IOBUF to `IOB`, BUFG to `BUFGMUX`,
   LUT1–6 and INV to `SLICE_LUT`, and FDRE/FDSE/FDCE/FDPE to `SLICE_FF`.
-  A pad that only feeds BUFGs uses `GCLK_I`. Its BUFG is placed during packing
-  on a BUFGMUX reachable from that pad, found by searching the routing graph.
+  A pad that only feeds clock loads uses `GCLK_I`. The clock tree is placed
+  during packing by searching the routing graph: pad -> BUFG / BUFIO2 ->
+  DCM / PLL -> the BUFGs they drive, each on a site the previous stage reaches.
+- **Carry chains (`carry.cc`):** a chain is one cluster placed by following
+  CO3 -> CIN (it skips rows in places). Each CARRY4's S inputs get the LUT6 of
+  their letter (inserting constant/pass-through LUTs), CI/CYINIT merge into
+  one CI (behind the CYINIT mux), and DI goes through the letter's LUT5 (O5)
+  when it fits, as ISE does. A letter that would export both O and CO gets CO
+  rebuilt as O(i+1) ^ S(i+1).
+- **Wide muxes (`wide.cc`):** a MUXF8 takes a whole SLICEL/SLICEM with its two
+  MUXF7s and four LUTs; a lone MUXF7 sits on F7AMUX (LUTs A/B) or F7BMUX
+  (C/D), chosen at placement.
+- **Block RAM (`bram.cc`):** RAMB16BWER uses both halves of a BRAM tile (a
+  cluster, pins split as in ISE's naming); RAMB8BWER one half. Don't-care pins
+  (unused port, address bits below the width, data bits above it) are
+  disconnected and used-but-undriven inputs tied low, as ISE does.
+- **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
+- **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
+  BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV fed from the BUFG on CLKIN2.
+- **Distributed RAM / SRL (`lutram.cc`):** SLICEM LUTs as RAM64X1S (up to four
+  per slice sharing the address, one always the D LUT, whose inputs are the
+  write address), RAM32M (whole slice) and SRLC32E/SRL16E (any SLICEM LUT).
+- **Bus pins** are named without brackets (`ADDRA5`): nextpnr's JSON writer
+  regroups `X[i]` ports and loses where a partly used bus starts.
 - **LUT pairing (LUT6 fracturing):** two LUTs with at most 5 distinct inputs
   between them, sharing at least one, are packed into one LUT6 site: both get
   the merged inputs on A1..A5 (tables rewritten), the LUT6 half (O6) gets A6
@@ -269,7 +318,13 @@ primary source is kept, as an always-on pip) and factory-test wires
   xc6slx9 this way, and matches ISE bitgen byte for byte. XDL quirk: the 5FF
   element has no cfg values, so it is written `A5FF:<name>:`.
 - **Placement rules:** the FFs in a slice share CLK, CE and SR, and
-  sync/async mode. I/Os only go on bonded pads.
+  sync/async mode; RAM/SRL LUTs share WE and the clock. Each bypass pin
+  (AX..DX) and each `<L>MUX` output carries one net (FF D, carry DI and
+  carry-in, wide-mux selects, RAM data in; O5, 5FF Q, carry O/CO, wide-mux
+  outputs). I/Os only go on bonded pads.
+- **router2 fixes (in the fork's core):** sink-wire reservation no longer
+  takes another output pin of the driver's bel as a possible source, and
+  treats a wire tied to a constant net's value as drivable.
 - **Constants:** GND/VCC are routed by router2 to any `TIE_0`/`TIE_1`/`CONST_*`
   wire.
 
@@ -282,9 +337,13 @@ Packer limits for now:
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
-- **Not supported yet:** CARRY4, MUXF7/F8, SRL, LUTRAM, BRAM and DSP. Synthesize
-  with `-nocarry -nowidelut -nosrl -nolutram -nobram -nodsp`, as
-  `make blinky` does.
+- **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
+  CARRYIN), SRL cascades (Q31), RAM32X1S/D, RAM64X1D, RAM128X1S/D, RAM64M,
+  latches, clock inversion, DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
+  CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
+  driven dynamically.
+- **Untested:** SRL initial values other than 0, RAM32M initial values, PLL
+  fed through CLKIN1 (BUFIO2) rather than CLKIN2.
 - **No timing model:** unit delays only.
 - **Constant CE/SR:** CE tied high and SR tied low are disconnected in the
   packer (slice defaults), since ISE treats GND -> SR as an excluded arc.
@@ -296,7 +355,7 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **Excluded ISE arcs:** the chipdb still contains arcs ISE marks as excluded
-  (e.g. GND -> SR). The rawdump has the flags; the exporter could drop them.
+- **Timing:** no delay data. prjcombine has none for Spartan-6; ISE's
+  speed files (or `trce` on our designs) would be the source.
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
   future bitstream writer. The `.bba` doesn't carry it.

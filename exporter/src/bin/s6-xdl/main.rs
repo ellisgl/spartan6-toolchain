@@ -72,6 +72,9 @@ struct Args {
     /// Debug: print the naming-database entries that mention this ISE wire name.
     #[arg(long)]
     find_ise_wire: Option<String>,
+    /// Debug: list every ISE test pip per tile kind (needs --rawdump).
+    #[arg(long)]
+    test_pips: bool,
     /// Debug: print ISE pips leaving TILE/WIRE (needs --rawdump).
     #[arg(long)]
     raw_pips_from: Option<String>,
@@ -186,6 +189,16 @@ impl Names<'_> {
         let tn = &self.nedev.ngrid.db.tile_class_namings[ntile.naming];
         let site = ntile.bels[bcrd.slot][0].clone();
         let rt = tn.bels[bcrd.slot].tiles[0];
+        (ntile.names[rt].clone(), site)
+    }
+
+    /// The n-th site of a bel (BRAM[0] has the RAMB8 and the RAMB16 site).
+    fn site_n(&self, bcrd: BelCoord, n: usize) -> (String, String) {
+        let tcrd = self.edev.bel_tile(bcrd);
+        let ntile = &self.nedev.ngrid.tiles[&tcrd];
+        let tn = &self.nedev.ngrid.db.tile_class_namings[ntile.naming];
+        let site = ntile.bels[bcrd.slot][n].clone();
+        let rt = tn.bels[bcrd.slot].tiles[n];
         (ntile.names[rt].clone(), site)
     }
 
@@ -330,6 +343,9 @@ enum Cand {
     IobClk { iob: BelCoord, inst: String },
     /// IOB output or tristate: fabric -> OLOGIC (route-through D1 -> OQ or T1 -> TQ) -> pad.
     IobOut { iob: BelCoord, ologic: BelCoord, inst: String, d: &'static str, q: &'static str, iob_pin: &'static str },
+    /// A site pin whose routing wire, naming entry and XDL name differ, e.g.
+    /// RAMB16 DIA16: wire of BRAM[1] pin DIA[0], naming BRAM[0] RAMB16_DIA16.
+    Pin { wire: (BelCoord, String), naming: (BelCoord, String), xdl_pin: String, inst: String, output: bool },
 }
 
 #[derive(Default)]
@@ -363,6 +379,10 @@ fn main() {
     if let Some(xy) = &args.dump_naming {
         let (x, y) = xy.split_once(',').expect("--dump-naming X,Y");
         dump_naming(&names, x.parse().unwrap(), y.parse().unwrap());
+        return;
+    }
+    if args.test_pips {
+        RawGraph::load(args.rawdump.as_ref().expect("--rawdump")).debug_test_pips();
         return;
     }
     if let Some(tw) = &args.raw_pips_from {
@@ -407,7 +427,7 @@ fn main() {
         let (x, y, ref belname) = c.bel;
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" => {}
-            "SLICE_LUT" | "SLICE_LUT5" | "SLICE_FF" | "SLICE_FF5" => {
+            "SLICE_LUT" | "SLICE_LUT5" | "SLICE_LUTRAM" | "SLICE_FF" | "SLICE_FF5" | "CARRY4" | "SLICE_F7MUX" | "SLICE_F8MUX" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = names.bel(x, y, slot);
                 let (tile, site) = names.site(bcrd);
@@ -426,6 +446,90 @@ fn main() {
                 let l = sub.chars().next().unwrap();
                 let inst = site.clone();
                 let site_cand = |pin: String, output: bool| Cand::Site { bcrd, pins: vec![pin], inst: inst.clone(), output };
+                if c.typ == "SLICE_LUTRAM" {
+                    // SLICEM LUT as RAM or shift register.
+                    assert!(routed, "{}: distributed RAM needs routed mode", c.name);
+                    let mode = c.params.get("RAM_MODE").map(String::as_str).unwrap_or("RAM64");
+                    let init: Vec<bool> = c.params.get("INIT").map(|v| v.chars().rev().map(|ch| ch == '1').collect()).unwrap_or_default();
+                    let bit = |i: usize| init.get(i).copied().unwrap_or(false);
+                    let hex = |bits: &[bool]| -> String {
+                        bits.chunks(4).rev().map(|n| char::from_digit(n.iter().enumerate().fold(0, |a, (k, &b)| a | (b as u32) << k), 16).unwrap().to_ascii_uppercase()).collect()
+                    };
+                    // XDL takes an SRL's logical INIT; RAMs give the table.
+                    let (xmode, table): (&str, Vec<bool>) = match mode {
+                        "SRL32" => ("SRL32", (0..64).map(|i| i < 32 && bit(i)).collect()),
+                        "SRL16" => ("SRL16", (0..64).map(|i| i < 16 && bit(i)).collect()),
+                        "RAM32" => ("SPRAM32", (0..64).map(bit).collect()),
+                        _ => ("SPRAM64", (0..64).map(bit).collect()),
+                    };
+                    s.set(&format!("{l}6LUT"), &[&c.name, "#RAM", &format!("O6=0x{}", hex(&table))]);
+                    s.set(&format!("{l}6RAMMODE"), &["", xmode]);
+                    if mode == "RAM32" {
+                        s.set(&format!("{l}5LUT"), &[&format!("{}$o5", c.name), "#RAM", &format!("O5=0x{}", hex(&table[..32]))]);
+                        s.set(&format!("{l}5RAMMODE"), &["", "SPRAM32"]);
+                    }
+                    s.set("CLKINV", &["", "CLK"]);
+                    for (port, _) in &c.conns {
+                        let (pins, output): (Vec<String>, bool) = match port.as_str() {
+                            p if p.len() == 2 && p.starts_with('A') => (vec![format!("{l}{}", &p[1..])], false),
+                            p if p.starts_with("WA") && p.len() == 3 => (vec![format!("D{}", &p[2..])], false),
+                            // Own bypass pin, or through the ALT chain: DX (B, C)
+                            // or the letter above's pin (A via BDI1).
+                            "DI1" => (vec![format!("{l}X"), "DX".into(), "CX".into(), "BX".into()], false),
+                            "DI2" => (vec![format!("{l}I")], false),
+                            "WE" => (vec!["WE".into(), "CE".into()], false),
+                            "CLK" => (vec!["CLK".into()], false),
+                            "O" => (vec![l.to_string()], true),
+                            "O5" => (vec![format!("{l}MUX")], true),
+                            _ => continue,
+                        };
+                        if port != "O" && port != "O5" && output {
+                            continue;
+                        }
+                        cands.insert((ci, port.clone()), Cand::Site { bcrd, pins, inst: inst.clone(), output });
+                    }
+                    continue;
+                }
+                if matches!(c.typ.as_str(), "SLICE_F7MUX" | "SLICE_F8MUX") {
+                    // F7AMUX: S on AX, out on AMUX; F7BMUX: CX/CMUX; F8MUX: BX/BMUX.
+                    // Data inputs come from the LUTs inside the slice.
+                    assert!(routed, "{}: wide muxes need routed mode", c.name);
+                    let l = match sub {
+                        "F7AMUX" => 'A',
+                        "F7BMUX" => 'C',
+                        "F8MUX" => 'B',
+                        other => panic!("{}: unexpected wide mux bel {other}", c.name),
+                    };
+                    s.set(sub, &[&c.name, ""]);
+                    if c.conns.contains_key("S") {
+                        cands.insert((ci, "S".into()), site_cand(format!("{l}X"), false));
+                    }
+                    if c.conns.contains_key("O") {
+                        cands.insert((ci, "O".into()), site_cand(format!("{l}MUX"), true));
+                    }
+                    continue;
+                }
+                if c.typ == "CARRY4" {
+                    // Everything else is slice muxes (SITE pips) and the COUT ->
+                    // CIN link, emitted where the route uses CYINIT = CIN.
+                    assert!(routed, "{}: CARRY4 needs routed mode", c.name);
+                    s.set("CARRY4", &[&c.name, ""]);
+                    for (i, l) in ['A', 'B', 'C', 'D'].into_iter().enumerate() {
+                        for port in [format!("O{i}"), format!("CO{i}")] {
+                            if c.conns.contains_key(&port) {
+                                cands.insert((ci, port), site_cand(format!("{l}MUX"), true));
+                            }
+                        }
+                        // DI through the bypass pin when not from O5.
+                        if c.conns.contains_key(&format!("DI{i}")) {
+                            cands.insert((ci, format!("DI{i}")), site_cand(format!("{l}X"), false));
+                        }
+                    }
+                    if c.conns.contains_key("CI") {
+                        cands.insert((ci, "CI".into()), site_cand("AX".into(), false));
+                    }
+                    continue;
+                }
                 if c.typ.starts_with("SLICE_LUT") {
                     // <L>6LUT drives O6, <L>5LUT drives O5. A LUT6 sharing its
                     // site with a LUT5 has a 5-input table and A6 tied high.
@@ -470,7 +574,12 @@ fn main() {
                         table = (0..64).map(|i| i >= 32 && table[i % n]).collect();
                         vars = (1..=6).collect();
                     }
-                    let expr = lut_expr(&table, &vars);
+                    let mut expr = lut_expr(&table, &vars);
+                    if half == "6" && c.conns.contains_key("A6") && vars.len() == 6 && (expr == "0" || expr == "1") {
+                        // A constant O6 next to a LUT5 must still use the
+                        // tied-high A6: 1 = A6, 0 = ~A6.
+                        expr = if expr == "1" { "A6".into() } else { "~A6".into() };
+                    }
                     s.set(&format!("{l}{half}LUT"), &[&c.name, "#LUT", &format!("O{half}={expr}")]);
                     if let Some(&ni) = c.conns.get("O") {
                         if half == "5" {
@@ -636,6 +745,249 @@ fn main() {
                     cfg,
                 });
             }
+            "DCM" | "PLL" | "BUFIO2" => {
+                assert!(routed, "{}: clock management needs routed mode", c.name);
+                let bcrd = names.bel(x, y, belname);
+                let (tile, site) = names.site(bcrd);
+                let inst = c.name.clone();
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let num = |k: &str, d: u64| -> u64 {
+                    p(k).map(|v| if v.len() > 8 && v.chars().all(|ch| ch == '0' || ch == '1') { u64::from_str_radix(&v, 2).unwrap() } else { v.parse().unwrap_or(d) }).unwrap_or(d)
+                };
+                let real = |k: &str, d: f64| -> f64 { p(k).and_then(|v| v.parse().ok()).unwrap_or(d) };
+                let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
+                let inv = |pin: &str| -> Vec<String> {
+                    kv(&format!("{pin}INV"), if c.conns.contains_key(pin) { pin.into() } else { "#OFF".into() })
+                };
+                let (prim, cfg) = match c.typ.as_str() {
+                    "DCM" => {
+                        let mut cfg = vec![vec!["DCM".into(), inst.clone(), "".into()]];
+                        cfg.push(kv("CLKDV_DIVIDE", format!("{:.1}", real("CLKDV_DIVIDE", 2.0))));
+                        cfg.push(kv("CLKIN_DIVIDE_BY_2", p("CLKIN_DIVIDE_BY_2").unwrap_or("FALSE".into())));
+                        cfg.push(kv("CLKOUT_PHASE_SHIFT", p("CLKOUT_PHASE_SHIFT").unwrap_or("NONE".into())));
+                        cfg.push(kv("CLK_FEEDBACK", p("CLK_FEEDBACK").unwrap_or("1X".into())));
+                        for pin in ["CTLGO", "CTLSEL0", "CTLSEL1", "CTLSEL2", "PSCLK", "PSEN", "PSINCDEC", "RST", "SKEWIN", "SKEWRST"] {
+                            cfg.push(inv(pin));
+                        }
+                        let deskew = match p("DESKEW_ADJUST").as_deref() {
+                            None | Some("SYSTEM_SYNCHRONOUS") => "5".to_string(),
+                            Some("SOURCE_SYNCHRONOUS") => "0".to_string(),
+                            Some(v) => v.to_string(),
+                        };
+                        cfg.push(kv("DESKEW_ADJUST", deskew));
+                        cfg.push(kv("DFS_FREQUENCY_MODE", p("DFS_FREQUENCY_MODE").unwrap_or("LOW".into())));
+                        cfg.push(kv("DLL_FREQUENCY_MODE", p("DLL_FREQUENCY_MODE").unwrap_or("LOW".into())));
+                        cfg.push(kv("DSS_MODE", p("DSS_MODE").unwrap_or("NONE".into())));
+                        cfg.push(kv("DUTY_CYCLE_CORRECTION", p("DUTY_CYCLE_CORRECTION").unwrap_or("TRUE".into())));
+                        cfg.push(kv("STARTUP_WAIT", p("STARTUP_WAIT").unwrap_or("FALSE".into())));
+                        cfg.push(kv("VERY_HIGH_FREQUENCY", "FALSE".into()));
+                        cfg.push(kv("CLKFX_DIVIDE", num("CLKFX_DIVIDE", 1).to_string()));
+                        cfg.push(kv("CLKFX_MULTIPLY", num("CLKFX_MULTIPLY", 4).to_string()));
+                        cfg.push(kv("CLKIN_PERIOD", format!("{:.6}", real("CLKIN_PERIOD", 10.0))));
+                        cfg.push(kv("PHASE_SHIFT", num("PHASE_SHIFT", 0).to_string()));
+                        ("DCM", cfg)
+                    }
+                    "PLL" => {
+                        let mut cfg = vec![vec!["PLL_ADV".into(), inst.clone(), "".into()]];
+                        // ISE's own XDL: user-level settings plus the low-level
+                        // fields at ISE's defaults (bitgen derives the real ones).
+                        for (k, v) in PLL_XDL_DEFAULTS {
+                            cfg.push(kv(k, v.to_string()));
+                        }
+                        cfg.push(kv("BANDWIDTH", p("BANDWIDTH").unwrap_or("OPTIMIZED".into())));
+                        cfg.push(kv("CLK_FEEDBACK", p("CLK_FEEDBACK").unwrap_or("CLKFBOUT".into())));
+                        cfg.push(kv("COMPENSATION", p("COMPENSATION").unwrap_or("SYSTEM_SYNCHRONOUS".into())));
+                        for pin in ["CLKBRST", "CLKINSEL", "ENOUTSYNC", "MANPDLF", "MANPULF", "REL", "RST", "SKEWCLKIN1", "SKEWCLKIN2", "SKEWRST", "SKEWSTB"] {
+                            cfg.push(inv(pin));
+                        }
+                        let period = real("CLKIN_PERIOD", real("CLKIN1_PERIOD", 10.0));
+                        cfg.push(kv("CLKFBOUT_MULT", num("CLKFBOUT_MULT", 1).to_string()));
+                        cfg.push(kv("CLKFBOUT_PHASE", format!("{:.1}", real("CLKFBOUT_PHASE", 0.0))));
+                        cfg.push(kv("CLKIN1_PERIOD", format!("{}", real("CLKIN1_PERIOD", period))));
+                        cfg.push(kv("CLKIN2_PERIOD", format!("{}", real("CLKIN2_PERIOD", period))));
+                        for i in 0..6 {
+                            cfg.push(kv(&format!("CLKOUT{i}_DIVIDE"), num(&format!("CLKOUT{i}_DIVIDE"), 1).to_string()));
+                            cfg.push(kv(&format!("CLKOUT{i}_DUTY_CYCLE"), format!("{:.1}", real(&format!("CLKOUT{i}_DUTY_CYCLE"), 0.5))));
+                            cfg.push(kv(&format!("CLKOUT{i}_PHASE"), format!("{:.1}", real(&format!("CLKOUT{i}_PHASE"), 0.0))));
+                        }
+                        cfg.push(kv("DIVCLK_DIVIDE", num("DIVCLK_DIVIDE", 1).to_string()));
+                        cfg.push(kv("REF_JITTER", format!("{}", real("REF_JITTER", 0.1))));
+                        ("PLL_ADV", cfg)
+                    }
+                    _ => {
+                        let cfg = vec![
+                            vec!["BUFIO2".into(), inst.clone(), "".into()],
+                            kv("DIVIDE", "1".into()),
+                            kv("DIVIDE_BYPASS", "TRUE".into()),
+                            kv("I_INVERT", "FALSE".into()),
+                        ];
+                        ("BUFIO2", cfg)
+                    }
+                };
+                for (port, _) in &c.conns {
+                    let output = !matches!(
+                        port.as_str(),
+                        "I" | "CLKIN" | "CLKFB" | "RST" | "PSCLK" | "PSEN" | "PSINCDEC" | "CLKIN1" | "CLKIN2" | "CLKFBIN" | "CLKINSEL"
+                    );
+                    // BUFIO2's CMT output is the DIVCLK site pin in ISE (the
+                    // DIVCLK_CMT naming entry is a wire further down the path,
+                    // so name it as DIVCLK and let the repair add the buffers).
+                    let xdl_pin = if port == "DIVCLK_CMT" { "DIVCLK".to_string() } else { port.clone() };
+                    cands.insert(
+                        (ci, port.clone()),
+                        Cand::Pin { wire: (bcrd, port.clone()), naming: (bcrd, xdl_pin.clone()), xdl_pin, inst: inst.clone(), output },
+                    );
+                }
+                instances.push(Instance { name: inst, kind: prim.into(), placement: Placement::Placed { tile, site }, cfg });
+            }
+            "DSP" => {
+                assert!(routed, "{}: DSP needs routed mode", c.name);
+                let bcrd = names.bel(x, y, belname);
+                let (tile, site) = names.site(bcrd);
+                let inst = c.name.clone();
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let flag = |k: &str| p(k).is_some_and(|v| v.chars().any(|ch| ch == '1'));
+                let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
+                let mut cfg: Vec<Vec<String>> = vec![vec!["DSP48A1".into(), inst.clone(), "".into()]];
+                for r in ["A0REG", "A1REG", "B0REG", "B1REG", "CARRYINREG", "CARRYOUTREG", "CREG", "DREG", "MREG", "OPMODEREG", "PREG"] {
+                    cfg.push(kv(r, if flag(r) { "1" } else { "0" }.into()));
+                }
+                cfg.push(kv("B_INPUT", p("B_INPUT").unwrap_or("DIRECT".into())));
+                cfg.push(kv("CARRYINSEL", p("CARRYINSEL").unwrap_or("OPMODE5".into())));
+                cfg.push(kv("RSTTYPE", p("RSTTYPE").unwrap_or("SYNC".into())));
+                for pin in [
+                    "CLK", "CEA", "CEB", "CEC", "CED", "CEM", "CEP", "CEOPMODE", "CECARRYIN", "RSTA", "RSTB", "RSTC", "RSTD",
+                    "RSTM", "RSTP", "RSTOPMODE", "RSTCARRYIN",
+                ] {
+                    cfg.push(kv(&format!("{pin}INV"), if c.conns.contains_key(pin) { pin.into() } else { "#OFF".into() }));
+                }
+                for (port, _) in &c.conns {
+                    let output = port.starts_with('M') || port.starts_with('P') || port == "CARRYOUTF";
+                    cands.insert((ci, port.clone()), Cand::Site { bcrd, pins: vec![port.clone()], inst: inst.clone(), output });
+                }
+                instances.push(Instance { name: inst, kind: "DSP48A1".into(), placement: Placement::Placed { tile, site }, cfg });
+            }
+            "BRAM" => {
+                assert!(routed, "{}: block RAM needs routed mode", c.name);
+                let kind = c.params.get("RAMB_KIND").map(String::as_str).unwrap_or("RAMB8");
+                let bcrd = names.bel(x, y, belname);
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let num = |k: &str| -> usize {
+                    p(k).map(|v| if v.len() > 8 && v.chars().all(|ch| ch == '0' || ch == '1') { usize::from_str_radix(&v, 2).unwrap() } else { v.parse().unwrap_or(0) }).unwrap_or(0)
+                };
+                // RAMB16's BRAM[1] cell: its pins belong to the RAMB16 instance
+                // (named after the BRAM[0] cell), as RAMB16 pin names.
+                let (inst, b0) = if kind == "RAMB16_HI" {
+                    (c.name.trim_end_matches("$hi").to_string(), names.bel(x, y, "BRAM[0]"))
+                } else {
+                    (c.name.clone(), bcrd)
+                };
+                let xdl_pin = |port: &str| -> (String, String) {
+                    // (naming key, XDL pin) for a cell port like "DIA[3]".
+                    let digits = port.len() - port.trim_end_matches(|ch: char| ch.is_ascii_digit()).len();
+                    let (base, idx) = if digits > 0 {
+                        let (b, i) = port.split_at(port.len() - digits);
+                        (b.to_string(), Some(i.parse::<usize>().unwrap()))
+                    } else {
+                        (port.to_string(), None)
+                    };
+                    match kind {
+                        "RAMB8" => {
+                            let r8 = match base.as_str() {
+                                "ADDRA" => "ADDRAWRADDR", "ADDRB" => "ADDRBRDADDR", "DIA" => "DIADI", "DIB" => "DIBDI",
+                                "DIPA" => "DIPADIP", "DIPB" => "DIPBDIP", "DOA" => "DOADO", "DOB" => "DOBDO",
+                                "DOPA" => "DOPADOP", "DOPB" => "DOPBDOP", "WEA" => "WEAWEL", "WEB" => "WEBWEU",
+                                "CLKA" => "CLKAWRCLK", "CLKB" => "CLKBRDCLK", "ENA" => "ENAWREN", "ENB" => "ENBRDEN",
+                                "REGCEB" => "REGCEBREGCE", "RSTB" => "RSTBRST", other => other,
+                            }
+                            .to_string();
+                            let n = idx.map(|i| i.to_string()).unwrap_or_default();
+                            (format!("{base}{n}"), format!("{r8}{n}"))
+                        }
+                        _ => {
+                            let hi = kind == "RAMB16_HI";
+                            let off = match base.as_str() {
+                                "ADDRA" | "ADDRB" => 13,
+                                "DIA" | "DIB" | "DOA" | "DOB" => 16,
+                                _ => 2,
+                            };
+                            let n = idx.map(|i| (i + if hi { off } else { 0 }).to_string()).unwrap_or_default();
+                            let pin = format!("{base}{n}");
+                            (format!("RAMB16_{pin}"), pin)
+                        }
+                    }
+                };
+                for (port, _) in &c.conns {
+                    let (nkey, xpin) = xdl_pin(port);
+                    let output = port.starts_with("DO");
+                    let naming_bel = if kind == "RAMB8" { bcrd } else { b0 };
+                    cands.insert(
+                        (ci, port.clone()),
+                        Cand::Pin { wire: (bcrd, port.clone()), naming: (naming_bel, nkey), xdl_pin: xpin, inst: inst.clone(), output },
+                    );
+                }
+                if kind == "RAMB16_HI" {
+                    continue;
+                }
+                let (tile, site) = if kind == "RAMB16" { names.site_n(bcrd, 1) } else { names.site(bcrd) };
+                let prim = if kind == "RAMB16" { "RAMB16BWER" } else { "RAMB8BWER" };
+                let mut cfg: Vec<Vec<String>> = vec![vec![prim.into(), inst.clone(), "".into()]];
+                let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
+                let used = |pin: &str| c.conns.contains_key(pin);
+                for ab in ["A", "B"] {
+                    let w = num(&format!("DATA_WIDTH_{ab}"));
+                    cfg.push(kv(&format!("DATA_WIDTH_{ab}"), w.to_string()));
+                    cfg.push(kv(&format!("WRITE_MODE_{ab}"), p(&format!("WRITE_MODE_{ab}")).unwrap_or("WRITE_FIRST".into())));
+                    cfg.push(kv(&format!("DO{ab}_REG"), num(&format!("DO{ab}_REG")).to_string()));
+                    cfg.push(kv(&format!("EN_RSTRAM_{ab}"), p(&format!("EN_RSTRAM_{ab}")).unwrap_or("TRUE".into())));
+                    cfg.push(kv(&format!("RST_PRIORITY_{ab}"), p(&format!("RST_PRIORITY_{ab}")).unwrap_or("SR".into())));
+                    for attr in ["INIT", "SRVAL"] {
+                        let bits = p(&format!("{attr}_{ab}")).unwrap_or_default();
+                        let nbits: usize = if kind == "RAMB16" { 36 } else { 18 };
+                        let v = u64::from_str_radix(if bits.is_empty() { "0" } else { &bits }, 2).unwrap_or(0);
+                        cfg.push(kv(&format!("{attr}_{ab}"), format!("{v:0w$X}", w = nbits.div_ceil(4))));
+                    }
+                    // Inverter settings: the pin's own name when used, else off.
+                    let pins: Vec<String> = if kind == "RAMB16" {
+                        vec![format!("CLK{ab}"), format!("EN{ab}"), format!("REGCE{ab}"), format!("RST{ab}")]
+                    } else {
+                        vec![format!("CLK{ab}"), format!("EN{ab}"), format!("REGCE{ab}"), format!("RST{ab}")]
+                    };
+                    for pin in pins {
+                        let (_, xpin) = xdl_pin(&pin);
+                        cfg.push(kv(&format!("{xpin}INV"), if used(&pin) { xpin.clone() } else { "#OFF".into() }));
+                    }
+                    let nwe = if kind == "RAMB16" { 4 } else { 2 };
+                    for i in 0..nwe {
+                        let port = if kind == "RAMB16" && i >= 2 { None } else { Some(format!("WE{ab}{i}")) };
+                        let (_, xpin) = if kind == "RAMB16" { (String::new(), format!("WE{ab}{i}")) } else { xdl_pin(&format!("WE{ab}{i}")) };
+                        let is_used = match &port {
+                            Some(pt) => used(pt),
+                            None => hi_we_used(&cells, &nets, ci, &format!("WE{ab}{}", i - 2)),
+                        };
+                        cfg.push(kv(&format!("{xpin}INV"), if is_used { xpin.clone() } else { "#OFF".into() }));
+                    }
+                }
+                cfg.push(kv("RAM_MODE", p("RAM_MODE").unwrap_or("TDP".into())));
+                cfg.push(kv("RSTTYPE", p("RSTTYPE").unwrap_or("SYNC".into())));
+                let (ninit, ninitp) = if kind == "RAMB16" { (0x40, 8) } else { (0x20, 4) };
+                for (prefix, n) in [("INIT", ninit), ("INITP", ninitp)] {
+                    for i in 0..n {
+                        let key = format!("{prefix}_{i:02X}");
+                        let bits = p(&key).unwrap_or_default();
+                        let b: Vec<bool> = bits.chars().rev().map(|ch| ch == '1').collect();
+                        let hex: String = (0..64)
+                            .rev()
+                            .map(|d| {
+                                let nib = (0..4).fold(0u8, |a, k| a | (u8::from(*b.get(d * 4 + k).unwrap_or(&false)) << k));
+                                char::from_digit(nib as u32, 16).unwrap().to_ascii_uppercase()
+                            })
+                            .collect();
+                        cfg.push(kv(&key, hex));
+                    }
+                }
+                instances.push(Instance { name: inst, kind: prim.into(), placement: Placement::Placed { tile, site }, cfg });
+            }
             "BUFGMUX" => {
                 let bcrd = names.bel(x, y, belname);
                 let (tile, site) = names.site(bcrd);
@@ -727,7 +1079,36 @@ fn main() {
                     "SITE" => {
                         has_site_pips = true;
                         let r = &meta.src_ref;
-                        site_muxes.push((*x, *y, r[1].clone(), r[2].clone(), r[3].clone()));
+                        // MUX_<L>DI1 = ALT is the letter above's data or its
+                        // shift cascade; ISE names the two separately.
+                        let val = if r[2].ends_with("DI1") && r[3] == "ALT" {
+                            let l = r[2].trim_start_matches("MUX_").chars().next().unwrap();
+                            let above = (l as u8 + 1) as char;
+                            if src.ends_with("MC31") {
+                                format!("{above}MC31")
+                            } else if l == 'A' {
+                                "BDI1".to_string()
+                            } else {
+                                "DX".to_string()
+                            }
+                        } else {
+                            r[3].clone()
+                        };
+                        site_muxes.push((*x, *y, r[1].clone(), r[2].clone(), val));
+                        if r[2] == "CYINIT" && r[3] == "CIN" {
+                            // Dedicated carry: COUT of the slice below -> CIN here.
+                            let here = names.bel(*x, *y, &r[1]);
+                            let below = edev.bel_carry_prev(here).expect("CIN without a slice below");
+                            let (_, here_site) = names.site(here);
+                            let (_, below_site) = names.site(below);
+                            let (bx, by) = (below.cell.col.to_idx(), below.cell.row.to_idx());
+                            site_muxes.push((bx, by, r[1].clone(), "COUTUSED".into(), "0".into()));
+                            let (_, ot, ow, _) = names.pin_naming(below, "COUT").expect("COUT naming");
+                            let (_, it, iw, _) = names.pin_naming(here, "CIN").expect("CIN naming");
+                            let key = canon(names.site_pin_wire(here, "A1").expect("slice wire"));
+                            items.push((key, Item::Out(below_site, "COUT".into(), ot, ow)));
+                            items.push((key, Item::In(here_site, "CIN".into(), it, iw)));
+                        }
                         // A slice mux reading a site input pin (e.g. AX -> AFF_D) consumes it.
                         if let Some(w) = parse_wire_name(&edev, names.cell(*x, *y), src) {
                             reached.insert(canon(w));
@@ -800,6 +1181,28 @@ fn main() {
                         }
                         any
                     }
+                    Cand::Pin { wire, naming, xdl_pin, inst, output } => {
+                        let w = names.site_pin_wire(wire.0, &wire.1).unwrap_or_else(|| panic!("no wire for {}", wire.1));
+                        let c = canon(w);
+                        let hit = if *output { sources.contains(&c) } else { reached.contains(&c) };
+                        if hit {
+                            let (pp, ptile, pname, _) =
+                                names.pin_naming(naming.0, &naming.1).unwrap_or_else(|| panic!("no naming for {}", naming.1));
+                            items.extend(pp.into_iter().map(|p| (c, Item::Pip(p))));
+                            if !*output {
+                                items.extend(names.trace(w).into_iter().map(|p| (c, Item::Pip(p))));
+                            }
+                            items.push((
+                                c,
+                                if *output {
+                                    Item::Out(inst.clone(), xdl_pin.clone(), ptile, pname)
+                                } else {
+                                    Item::In(inst.clone(), xdl_pin.clone(), ptile, pname)
+                                },
+                            ));
+                        }
+                        hit
+                    }
                     Cand::IobClk { iob, inst } => {
                         let w = names.site_pin_wire(*iob, "I").expect("IOB I wire");
                         let c = canon(w);
@@ -852,7 +1255,8 @@ fn main() {
                 };
                 // A FF fed straight from its own LUT uses only the slice mux, and
                 // a LUT output that only feeds its own FF never leaves the slice.
-                let internal = (has_site_pips && port == "D" && !is_driver) || (is_driver && !has_int_pips);
+                let site_fed = matches!(port.as_str(), "D" | "CI" | "DI0" | "DI1" | "DI2" | "DI3" | "WE");
+                let internal = (has_site_pips && site_fed && !is_driver) || (is_driver && !has_int_pips);
                 if !matched && !internal && !(is_driver && n.users.is_empty()) {
                     unmatched.push(format!("{} {}.{}", n.name, cells[*ci].name, port));
                 }
@@ -953,7 +1357,22 @@ fn main() {
             } else if attr.starts_with("MUX_") && attr.ends_with("CY0") {
                 (format!("{}CY0", l(&attr, "MUX_")), val)
             } else if attr == "PRECYINIT" {
+                // A constant carry-in comes from a CYINITGND/CYINITVCC element.
+                match val.as_str() {
+                    "CONST_0" => s.set("CYINITGND", &[&format!("{site}.CYINITGND"), ""]),
+                    "CONST_1" => s.set("CYINITVCC", &[&format!("{site}.CYINITVCC"), ""]),
+                    _ => {}
+                }
                 ("PRECYINIT".into(), match val.as_str() { "CONST_0" => "0".into(), "CONST_1" => "1".into(), v => v.into() })
+            } else if attr == "CYINIT" {
+                // Implied by whether CIN is connected.
+                continue;
+            } else if attr == "COUTUSED" {
+                ("COUTUSED".into(), val)
+            } else if attr.starts_with("MUX_") && attr.ends_with("DI1") {
+                (format!("{}DI1MUX", l(&attr, "MUX_")), val)
+            } else if attr == "MUX_WE" {
+                ("WEMUX".into(), val)
             } else {
                 panic!("unknown slice mux {attr}")
             };
@@ -1035,6 +1454,139 @@ enum Item {
     /// (instance, pin, ISE tile, ISE wire of the pin)
     Out(String, String, String, String),
     In(String, String, String, String),
+}
+
+/// PLL_ADV settings ISE's XDL lists at their defaults; bitgen derives the
+/// real values from the user-level ones (CLKFBOUT_MULT, CLKOUTn_DIVIDE, ...).
+const PLL_XDL_DEFAULTS: &[(&str, &str)] = &[
+    ("PLL_ADD_LEAKAGE", "2"),
+    ("PLL_AVDD_COMP_SET", "2"),
+    ("PLL_CLAMP_BYPASS", "FALSE"),
+    ("PLL_CLAMP_REF_SEL", "1"),
+    ("PLL_CLK0MX", "0"),
+    ("PLL_CLK1MX", "0"),
+    ("PLL_CLK2MX", "0"),
+    ("PLL_CLK3MX", "0"),
+    ("PLL_CLK4MX", "0"),
+    ("PLL_CLK5MX", "0"),
+    ("PLL_CLKBURST_CNT", "0"),
+    ("PLL_CLKBURST_ENABLE", "TRUE"),
+    ("PLL_CLKCNTRL", "0"),
+    ("PLL_CLKFBMX", "0"),
+    ("PLL_CLKFBOUT2_EDGE", "TRUE"),
+    ("PLL_CLKFBOUT2_NOCOUNT", "TRUE"),
+    ("PLL_CLKFBOUT_EDGE", "TRUE"),
+    ("PLL_CLKFBOUT_EN", "FALSE"),
+    ("PLL_CLKFBOUT_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT0_EDGE", "TRUE"),
+    ("PLL_CLKOUT0_EN", "FALSE"),
+    ("PLL_CLKOUT0_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT1_EDGE", "TRUE"),
+    ("PLL_CLKOUT1_EN", "FALSE"),
+    ("PLL_CLKOUT1_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT2_EDGE", "TRUE"),
+    ("PLL_CLKOUT2_EN", "FALSE"),
+    ("PLL_CLKOUT2_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT3_EDGE", "TRUE"),
+    ("PLL_CLKOUT3_EN", "FALSE"),
+    ("PLL_CLKOUT3_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT4_EDGE", "TRUE"),
+    ("PLL_CLKOUT4_EN", "FALSE"),
+    ("PLL_CLKOUT4_NOCOUNT", "TRUE"),
+    ("PLL_CLKOUT5_EDGE", "TRUE"),
+    ("PLL_CLKOUT5_EN", "FALSE"),
+    ("PLL_CLKOUT5_NOCOUNT", "TRUE"),
+    ("PLL_CLK_LOST_DETECT", "FALSE"),
+    ("PLL_CP", "1"),
+    ("PLL_CP_BIAS_TRIP_SHIFT", "TRUE"),
+    ("PLL_CP_REPL", "1"),
+    ("PLL_CP_RES", "0"),
+    ("PLL_DIRECT_PATH_CNTRL", "TRUE"),
+    ("PLL_DIVCLK_EDGE", "TRUE"),
+    ("PLL_DIVCLK_NOCOUNT", "TRUE"),
+    ("PLL_DVDD_COMP_SET", "2"),
+    ("PLL_EN", "FALSE"),
+    ("PLL_EN_DLY", "TRUE"),
+    ("PLL_EN_LEAKAGE", "2"),
+    ("PLL_EN_TCLK0", "TRUE"),
+    ("PLL_EN_TCLK1", "TRUE"),
+    ("PLL_EN_TCLK2", "TRUE"),
+    ("PLL_EN_TCLK3", "TRUE"),
+    ("PLL_EN_VCO0", "FALSE"),
+    ("PLL_EN_VCO1", "FALSE"),
+    ("PLL_EN_VCO2", "FALSE"),
+    ("PLL_EN_VCO3", "FALSE"),
+    ("PLL_EN_VCO4", "FALSE"),
+    ("PLL_EN_VCO5", "FALSE"),
+    ("PLL_EN_VCO6", "FALSE"),
+    ("PLL_EN_VCO7", "FALSE"),
+    ("PLL_EN_VCO_DIV1", "FALSE"),
+    ("PLL_EN_VCO_DIV6", "TRUE"),
+    ("PLL_INTFB", "0"),
+    ("PLL_IO_CLKSRC", "0"),
+    ("PLL_LFHF", "3"),
+    ("PLL_LOCK_FB_DLY", "3"),
+    ("PLL_LOCK_REF_DLY", "5"),
+    ("PLL_MAN_LF_EN", "TRUE"),
+    ("PLL_NBTI_EN", "TRUE"),
+    ("PLL_PFD_CNTRL", "8"),
+    ("PLL_PFD_DLY", "1"),
+    ("PLL_PWRD_CFG", "FALSE"),
+    ("PLL_REG_INPUT", "TRUE"),
+    ("PLL_RES", "1"),
+    ("PLL_SEL_SLIPD", "FALSE"),
+    ("PLL_SKEW_CNTRL", "0"),
+    ("PLL_TEST_IN_WINDOW", "FALSE"),
+    ("PLL_VDD_SEL", "0"),
+    ("PLL_VLFHIGH_DIS", "TRUE"),
+    ("PLL_CLKFBOUT2_DT", "000000"),
+    ("PLL_CLKFBOUT2_HT", "000001"),
+    ("PLL_CLKFBOUT2_LT", "000001"),
+    ("PLL_CLKFBOUT_DT", "000000"),
+    ("PLL_CLKFBOUT_HT", "000001"),
+    ("PLL_CLKFBOUT_LT", "000001"),
+    ("PLL_CLKFBOUT_PM", "000"),
+    ("PLL_CLKOUT0_DT", "000000"),
+    ("PLL_CLKOUT0_HT", "000001"),
+    ("PLL_CLKOUT0_LT", "000001"),
+    ("PLL_CLKOUT0_PM", "000"),
+    ("PLL_CLKOUT1_DT", "000000"),
+    ("PLL_CLKOUT1_HT", "000001"),
+    ("PLL_CLKOUT1_LT", "000001"),
+    ("PLL_CLKOUT1_PM", "000"),
+    ("PLL_CLKOUT2_DT", "000000"),
+    ("PLL_CLKOUT2_HT", "000001"),
+    ("PLL_CLKOUT2_LT", "000001"),
+    ("PLL_CLKOUT2_PM", "000"),
+    ("PLL_CLKOUT3_DT", "000000"),
+    ("PLL_CLKOUT3_HT", "000001"),
+    ("PLL_CLKOUT3_LT", "000001"),
+    ("PLL_CLKOUT3_PM", "000"),
+    ("PLL_CLKOUT4_DT", "000000"),
+    ("PLL_CLKOUT4_HT", "000001"),
+    ("PLL_CLKOUT4_LT", "000001"),
+    ("PLL_CLKOUT4_PM", "000"),
+    ("PLL_CLKOUT5_DT", "000000"),
+    ("PLL_CLKOUT5_HT", "000001"),
+    ("PLL_CLKOUT5_LT", "000001"),
+    ("PLL_CLKOUT5_PM", "000"),
+    ("PLL_DIVCLK_DT", "000000"),
+    ("PLL_DIVCLK_HT", "000001"),
+    ("PLL_DIVCLK_LT", "000001"),
+    ("PLL_EN_CNTRL", "0000000000100010011110001110011000011110101000101111110010111110100001000010000000000"),
+    ("PLL_IN_DLY_MX_SEL", "00000"),
+    ("PLL_IN_DLY_SET", "000000000"),
+    ("PLL_LOCK_CNT", "224"),
+    ("PLL_LOCK_SAT_HIGH", "255"),
+    ("PLL_MISC", "0000"),
+    ("PLL_OPT_INV", "000000"),
+    ("PLL_UNLOCK_CNT", "96"),
+];
+
+/// Whether the BRAM[1] partner of RAMB16 cell `ci` uses `port`.
+fn hi_we_used(cells: &[s6_export::nextpnr::NCell], _nets: &[s6_export::nextpnr::NNet], ci: usize, port: &str) -> bool {
+    let hi = format!("{}$hi", cells[ci].name);
+    cells.iter().any(|c| c.name == hi && c.conns.contains_key(port))
 }
 
 fn find_ise_wire(names: &Names, w: &str) {

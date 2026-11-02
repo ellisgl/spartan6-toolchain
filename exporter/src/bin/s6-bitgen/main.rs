@@ -30,6 +30,8 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Debug: print a database table row (all fields, as numbers).
+    Table { table: String, row: String },
     /// Parse a bitstream and write it back (packet writer test).
     Roundtrip {
         #[arg(long)]
@@ -71,6 +73,16 @@ fn main() {
     };
 
     match args.command {
+        Command::Table { table, row } => {
+            let t = db.int.tables.values().find(|t| t.name == table).expect("no such table");
+            let (_, r) = t.rows.iter().find(|(_, r)| r.name == row).expect("no such row");
+            for (fid, f) in &t.fields {
+                if let Some(prjcombine_interconnect::db::TableValue::BitVec(bv)) = r.fields.get(fid) {
+                    let v = (0..bv.len()).rev().fold(0u64, |a, i| a << 1 | bv[i] as u64);
+                    println!("{} = {v}", f.name);
+                }
+            }
+        }
         Command::Roundtrip { input, out } => {
             let orig = std::fs::read(&input).expect("read input");
             let bs = parse(&input);

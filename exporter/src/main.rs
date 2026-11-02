@@ -258,6 +258,13 @@ impl TypeBuilder {
         if is_test_wire(&self.out.wires[src].name) || is_test_wire(&self.out.wires[dst].name) {
             return;
         }
+        // ISE marks GND_WIRE -> CLK0/CLK1/SR0 as test pips in every
+        // interconnect tile (xdl2ncd rejects them); the VCC versions are fine.
+        if self.out.wires[src].name == "TIE_0"
+            && matches!(self.out.wires[dst].name.as_str(), "IMUX_CLK[0]" | "IMUX_CLK[1]" | "IMUX_SR[0]")
+        {
+            return;
+        }
         self.out.pips.push(OutPip { src, dst, kind, inv, src_ref });
     }
 }

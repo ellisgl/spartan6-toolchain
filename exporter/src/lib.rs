@@ -41,9 +41,13 @@ pub fn parse_wire_name(egrid: &ExpandedGrid, cell: CellCoord, name: &str) -> Opt
     Some(cell.wire(wslot))
 }
 
+/// Bel pin name: bus bits are written without brackets ("ADDRA5"), as ISE
+/// names them. nextpnr's JSON writer regroups "X[i]" ports into buses and
+/// loses where a partly used bus starts, so brackets can't survive a
+/// place-and-route round trip.
 pub fn pin_name(base: &str, idx: EntityBundleItemIndex, virt: impl Fn(usize) -> usize) -> String {
     match idx {
         EntityBundleItemIndex::Single => base.to_string(),
-        EntityBundleItemIndex::Array { index, .. } => format!("{base}[{}]", virt(index)),
+        EntityBundleItemIndex::Array { index, .. } => format!("{base}{}", virt(index)),
     }
 }

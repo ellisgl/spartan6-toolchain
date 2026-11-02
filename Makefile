@@ -14,12 +14,12 @@ DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
 NEXTPNR_REPO   := https://github.com/ellisgl/nextpnr.git
-NEXTPNR_REV    := 0bd4b637387c669885e00c7e271c4ce2ea868229
+NEXTPNR_REV    := 03a8cff4a3e49f7edd8e82c6bed4cd6d3c72b275
 PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
-# Until the packer supports them: no carry chains, wide muxes, SRLs, LUTRAM, BRAM or DSP.
-SYNTH_FLAGS    ?= -nocarry -nowidelut -nosrl -nolutram -nobram -nodsp
+# Everything synth_xilinx emits for xc6s is supported (see README for limits).
+SYNTH_FLAGS    ?=
 
 BUILD    := build
 EXPORTER := $(BUILD)/target/release/s6-export
@@ -62,8 +62,13 @@ $(NPNR_BLD)/Makefile: $(NPNR_FETCHED)
 	cmake -S $(NEXTPNR) -B $(NPNR_BLD) -DARCH=himbaechel -DHIMBAECHEL_UARCH=spartan6 \
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_PYTHON=OFF -DBUILD_TESTS=OFF
 
-$(NPNR_BIN): $(NPNR_BLD)/Makefile $(UARCH_SRC)
+# With NEXTPNR_SRC, any file in the checkout may change (not just the uarch),
+# so always let cmake decide.
+$(NPNR_BIN): $(NPNR_BLD)/Makefile $(UARCH_SRC) $(if $(NEXTPNR_SRC),FORCE)
 	cmake --build $(NPNR_BLD) -j$(JOBS) --target nextpnr-himbaechel
+
+.PHONY: FORCE
+FORCE:
 
 $(BBASM): $(NPNR_BLD)/Makefile
 	cmake --build $(NPNR_BLD) -j$(JOBS) --target bbasm
@@ -143,9 +148,15 @@ XDL_MODE ?= routed
 # Keep intermediate files (synth.json, design.xdl) for inspection.
 .SECONDARY:
 .SECONDEXPANSION:
-$(BUILD)/%/synth.json: $$(wildcard tests/$$*/*.v)
+# Re-synthesize when SYNTH_FLAGS changes: the stamp is rewritten only then.
+SYNTH_STAMP := $(BUILD)/.synth-flags
+$(shell mkdir -p $(BUILD); echo '$(SYNTH_FLAGS)' | cmp -s - $(SYNTH_STAMP) 2>/dev/null || echo '$(SYNTH_FLAGS)' > $(SYNTH_STAMP))
+
+# tests/common/*.v (shared UART helpers) is read for every design; yosys drops
+# the modules a design doesn't use.
+$(BUILD)/%/synth.json: $$(wildcard tests/$$*/*.v) $(wildcard tests/common/*.v) $(SYNTH_STAMP)
 	@mkdir -p $(dir $@)
-	$(YOSYS) -q -l $(dir $@)yosys.log -p "synth_xilinx -family xc6s -top $* $(SYNTH_FLAGS) -json $@" $^
+	$(YOSYS) -q -l $(dir $@)yosys.log -p "synth_xilinx -family xc6s -top $* $(SYNTH_FLAGS) -json $@" $(filter %.v,$^)
 
 ucf_for = $(if $(wildcard tests/$(1)/pins.ucf),tests/$(1)/pins.ucf,tests/mojo_v3.ucf)
 

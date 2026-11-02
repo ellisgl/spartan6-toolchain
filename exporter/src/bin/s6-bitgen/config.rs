@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 
 use prjcombine_entity::{EntityId, EntityVec};
 use prjcombine_interconnect::db::{
-    Bel, BelAttribute, BelAttributeType, BelClass, BelInfo, IntDb, SwitchBoxItem, TableValue,
+    Bel, BelAttribute, BelAttributeType, BelClass, BelInfo, BelInput, IntDb, SwitchBoxItem, TableValue,
 };
 use prjcombine_interconnect::grid::{BelCoord, CellCoord, ColId, DieId, RowId, TileCoord};
 use prjcombine_spartan6::bitstream::{BRAM_FRAME_LEN, BitPos, BitRect, Bitstream, FRAME_LEN, Reg};
@@ -64,6 +64,14 @@ pub struct Gen<'a> {
     set_enums: HashSet<(BelCoord, String)>,
     /// Slices with at least one cell placed in them.
     used_slices: HashSet<BelCoord>,
+    /// While set, bit writes go to frame fixups (a second write of the frame
+    /// after the main frame data) instead of the main frame data.
+    fixup: bool,
+    /// PairMux items in use: one setting drives two wires, so the sources of
+    /// both are collected first, (tile, item index) -> [source per output].
+    pair_muxes: HashMap<(TileCoord, prjcombine_interconnect::db::BelSlotId, usize), [Option<prjcombine_interconnect::db::TileWireCoord>; 2]>,
+    /// A DCM is used (changes the CMT regulators' REG_BG everywhere).
+    dcm_used: bool,
 }
 
 impl<'a> Gen<'a> {
@@ -72,10 +80,15 @@ impl<'a> Gen<'a> {
         for &(r, v) in DEFAULT_REGS {
             bs.regs.insert(r, v);
         }
-        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new() }
+        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new(), fixup: false, pair_muxes: HashMap::new(), dcm_used: false }
     }
 
     fn set_pos(&mut self, pos: BitPos, v: bool) {
+        if self.fixup {
+            let BitPos::Main(f, b) = pos else { panic!("fixup of non-main bit {pos:?}") };
+            self.bs.frame_fixups.insert((f, b), v);
+            return;
+        }
         match pos {
             BitPos::Main(f, b) => self.bs.frame_data.set(f * FRAME_LEN + b, v),
             BitPos::Bram(f, b) => self.bs.bram_data.set(f * BRAM_FRAME_LEN + b, v),
@@ -130,6 +143,45 @@ impl<'a> Gen<'a> {
         assert!(offset + val.len() <= bits.len(), "{name}: width");
         for (b, &v) in bits[offset..].iter().zip(val) {
             self.set_tb(tcrd, b.bit, v ^ b.inv);
+        }
+    }
+
+    fn attr_len(&self, bcrd: BelCoord, name: &str) -> usize {
+        match self.attr(bcrd, name).1 {
+            BelAttribute::BitVec(bits) => bits.len(),
+            BelAttribute::Enum(e) => e.bits.len(),
+        }
+    }
+
+    /// Set the raw bitstream bits of a bit-vector attribute, ignoring its
+    /// stored polarity (for bits only known as ISE writes them).
+    fn set_raw_bits(&mut self, bcrd: BelCoord, name: &str, raw: &[bool]) {
+        let (tcrd, attr, _) = self.attr(bcrd, name);
+        let tbits: Vec<TileBit> = match attr {
+            BelAttribute::BitVec(bits) => bits.iter().map(|b| b.bit).collect(),
+            BelAttribute::Enum(e) => e.bits.clone(),
+        };
+        assert_eq!(tbits.len(), raw.len(), "{name}: width");
+        for (b, &v) in tbits.into_iter().zip(raw) {
+            self.set_tb(tcrd, b, v);
+        }
+    }
+
+    /// Set the raw inversion bit of every invertible input whose name starts
+    /// with `prefix` (e.g. "WEA" for WEA0..WEA1).
+    fn set_input_inv_raw(&mut self, bcrd: BelCoord, prefix: &str, raw: bool) {
+        let (tcrd, bel, bcls) = self.bel(bcrd);
+        let mut bits = vec![];
+        for (pid, inp) in &bel.inputs {
+            if let BelInput::Invertible(_, b) = inp {
+                let (pn, _) = bcls.inputs.key(pid);
+                if pn.starts_with(prefix) {
+                    bits.push(b.bit);
+                }
+            }
+        }
+        for b in bits {
+            self.set_tb(tcrd, b, raw);
         }
     }
 
@@ -243,7 +295,7 @@ impl<'a> Gen<'a> {
                     let (cid, _) = tile.cells.iter().find(|&(_, &c)| c == raw.cell).expect("wire not in tile");
                     prjcombine_interconnect::db::TileWireCoord { cell: cid, wire: raw.slot }
                 };
-                let (tw_in, _tw_out) = (tcw(src), tcw(dst));
+                let (tw_in, tw_out) = (tcw(src), tcw(dst));
                 match &tcls.bels[bslot] {
                     BelInfo::SwitchBox(sb) => match &sb.items[idx] {
                         SwitchBoxItem::Mux(m) => {
@@ -252,6 +304,12 @@ impl<'a> Gen<'a> {
                             for (i, &b) in m.bits.iter().enumerate() {
                                 self.set_tb(tcrd, b, pat[i]);
                             }
+                        }
+                        SwitchBoxItem::PairMux(pm) => {
+                            let k = pm.dst.iter().position(|&d| d == tw_out).expect("pair mux output");
+                            let e = self.pair_muxes.entry((tcrd, bslot, idx)).or_insert([None, None]);
+                            assert!(e[k].is_none_or(|s| s == tw_in), "pair mux output used twice");
+                            e[k] = Some(tw_in);
                         }
                         SwitchBoxItem::ProgBuf(p) => self.set_tb(tcrd, p.bit.bit, !p.bit.inv),
                         SwitchBoxItem::Pass(p) => self.set_tb(tcrd, p.bit.bit, !p.bit.inv),
@@ -276,6 +334,48 @@ impl<'a> Gen<'a> {
         let cell = self.cell(x, y);
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" | "BUFGMUX" => {}
+            "BRAM" => self.bram_config(c, cell)?,
+            "DCM" | "PLL" | "BUFIO2" => self.cmt_config(c, cell)?,
+            "DSP" => {
+                let bcrd = cell.bel(self.slot(belname));
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let flag = |k: &str| p(k).is_some_and(|v| v.chars().any(|ch| ch == '1'));
+                for r in [
+                    "A0REG", "A1REG", "B0REG", "B1REG", "CREG", "DREG", "MREG", "PREG", "OPMODEREG", "CARRYINREG",
+                    "CARRYOUTREG",
+                ] {
+                    self.set_bits(bcrd, r, &[flag(r)]);
+                }
+                self.set_enum(bcrd, "B_INPUT", &p("B_INPUT").unwrap_or("DIRECT".into()));
+                self.set_enum(bcrd, "CARRYINSEL", &p("CARRYINSEL").unwrap_or("OPMODE5".into()));
+                self.set_enum(bcrd, "RSTTYPE", &p("RSTTYPE").unwrap_or("SYNC".into()));
+            }
+            "CARRY4" | "SLICE_F7MUX" | "SLICE_F8MUX" => {
+                // Everything is in the slice muxes (SITE pips: MUX_<L>CY0,
+                // PRECYINIT, CYINIT, MUX_FF<L>/MUX_<L>OUT = XOR/CY/F7/F8).
+                let (slot, _) = belname.split_once('.').unwrap();
+                self.used_slices.insert(cell.bel(self.slot(slot)));
+            }
+            "SLICE_LUTRAM" => {
+                // SLICEM LUT as RAM or shift register: RAMMODE plus the table
+                // (RAM32: O5 half low, O6 half high).
+                let (slot, sub) = belname.split_once('.').unwrap();
+                let bcrd = cell.bel(self.slot(slot));
+                self.used_slices.insert(bcrd);
+                let l = &sub[..1];
+                let mode = c.params.get("RAM_MODE").map(String::as_str).unwrap_or("RAM64");
+                self.set_enum(bcrd, &format!("{l}RAMMODE"), mode);
+                let init: Vec<bool> = c.params.get("INIT").map(|v| v.chars().rev().map(|ch| ch == '1').collect()).unwrap_or_default();
+                let bit = |i: usize| init.get(i).copied().unwrap_or(false);
+                // SRLs read with A1 (and for SRL16, A6) high: each bit is
+                // doubled across A1, SRL16 in the upper half (as ISE writes).
+                let table: Vec<bool> = match mode {
+                    "SRL32" => (0..64).map(|i| bit(i / 2)).collect(),
+                    "SRL16" => (0..64).map(|i| i >= 32 && bit((i - 32) / 2)).collect(),
+                    _ => (0..64).map(bit).collect(),
+                };
+                self.set_bits(bcrd, &format!("{l}6LUT"), &table);
+            }
             "SLICE_LUT" | "SLICE_LUT5" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = cell.bel(self.slot(slot));
@@ -365,8 +465,9 @@ impl<'a> Gen<'a> {
                 }
                 if input {
                     self.set_enum(bcrd, "IBUF_MODE", "CMOS_VCCAUX");
-                    if c.conns.contains_key("I") {
-                        // Data input through ILOGIC (pass-through to FABRICOUT).
+                    if c.conns.get("I").is_some_and(|&ni| !nets[ni].users.is_empty()) {
+                        // Data input through ILOGIC (pass-through to FABRICOUT);
+                        // ISE leaves it off for an input nothing reads.
                         let ilogic = cell.bel(self.slot(&format!("ILOGIC[{n}]")));
                         self.set_bits(ilogic, "ENABLE", &[true]);
                         // No input delay (the bit is stored inverted).
@@ -376,15 +477,338 @@ impl<'a> Gen<'a> {
                 if let Some(pull) = c.pull() {
                     self.set_enum(bcrd, "PULL", pull);
                 }
-                let _ = nets;
             }
             other => return Err(format!("cell {}: type {other} not supported by the bitstream writer yet", c.name)),
         }
         Ok(())
     }
 
+    /// Block RAM: one RAMB8 half, or a RAMB16 over both halves (the cell on
+    /// BRAM[0] carries the parameters; its BRAM[1] partner has none).
+    fn bram_config(&mut self, c: &NCell, cell: CellCoord) -> Result<(), String> {
+        let kind = c.params.get("RAMB_KIND").map(String::as_str).unwrap_or("RAMB8");
+        if kind == "RAMB16_HI" {
+            return Ok(());
+        }
+        let belname = &c.bel.2;
+        let halves: Vec<BelCoord> = if kind == "RAMB16" {
+            vec![cell.bel(self.slot("BRAM[0]")), cell.bel(self.slot("BRAM[1]"))]
+        } else {
+            vec![cell.bel(self.slot(belname))]
+        };
+        let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+        let num = |k: &str| -> usize {
+            p(k).map(|v| if v.chars().all(|ch| ch == '0' || ch == '1') && v.len() > 8 { usize::from_str_radix(&v, 2).unwrap() } else { v.parse().unwrap_or(0) }).unwrap_or(0)
+        };
+        let bits_of = |k: &str, n: usize| -> Vec<bool> {
+            let v = p(k).unwrap_or_default();
+            let b: Vec<bool> = v.chars().rev().map(|ch| ch == '1').collect();
+            (0..n).map(|i| b.get(i).copied().unwrap_or(false)).collect()
+        };
+        let truthy = |k: &str, def: bool| -> bool {
+            match p(k).as_deref() {
+                None => def,
+                Some("TRUE") => true,
+                Some("FALSE") => false,
+                Some(v) => v.chars().any(|ch| ch == '1'),
+            }
+        };
+        // Pin usage on the cell that has the control pins (BRAM[0] for RAMB16).
+        let used = |pin: &str| c.conns.contains_key(pin);
+        for &h in &halves {
+            if kind == "RAMB16" {
+                self.set_bits(h, "COMBINE", &[true]);
+            }
+            // As ISE writes them for non-inverted pins (raw bits): CLK_INV set
+            // when the clock is used, RST_INV set when the reset is not (an
+            // unconnected input reads 1), EN/REGCE_INV always set; write-enable
+            // inversion bits, DDEL = 011 and BW_EN always set.
+            for ab in ["A", "B"] {
+                self.set_raw_bits(h, &format!("CLK{ab}_INV"), &[used(&format!("CLK{ab}"))]);
+                self.set_raw_bits(h, &format!("RST{ab}_INV"), &[!used(&format!("RST{ab}"))]);
+                self.set_raw_bits(h, &format!("EN{ab}_INV"), &[true]);
+                self.set_raw_bits(h, &format!("REGCE{ab}_INV"), &[true]);
+                self.set_raw_bits(h, &format!("DDEL_{ab}"), &[true, true, false]);
+                self.set_raw_bits(h, &format!("BW_EN_{ab}"), &[true]);
+                self.set_input_inv_raw(h, &format!("WE{ab}"), true);
+            }
+            let mode = if kind == "RAMB16" { "TDP".to_string() } else { p("RAM_MODE").unwrap_or("TDP".into()) };
+            self.set_enum(h, "RAM_MODE", &mode);
+            for ab in ["A", "B"] {
+                self.set_enum(h, &format!("DATA_WIDTH_{ab}"), &format!("_{}", num(&format!("DATA_WIDTH_{ab}"))));
+                self.set_enum(h, &format!("WRITE_MODE_{ab}"), &p(&format!("WRITE_MODE_{ab}")).unwrap_or("WRITE_FIRST".into()));
+                self.set_bits(h, &format!("DO{ab}_REG"), &[num(&format!("DO{ab}_REG")) != 0]);
+                self.set_bits(h, &format!("EN_RSTRAM_{ab}"), &[truthy(&format!("EN_RSTRAM_{ab}"), true)]);
+                self.set_enum(h, &format!("RSTTYPE_{ab}"), &p("RSTTYPE").unwrap_or("SYNC".into()));
+                self.set_enum(h, &format!("RST_PRIORITY_{ab}"), &p(&format!("RST_PRIORITY_{ab}")).unwrap_or("SR".into()));
+            }
+        }
+        // INIT_A/B and SRVAL_A/B: RAMB16's 36 bits are low 16 + 2 parity per half.
+        for attr in ["INIT_A", "INIT_B", "SRVAL_A", "SRVAL_B"] {
+            if kind == "RAMB16" {
+                let v = bits_of(attr, 36);
+                for (hi, &h) in halves.iter().enumerate() {
+                    let mut hv = v[hi * 16..hi * 16 + 16].to_vec();
+                    hv.extend_from_slice(&v[32 + hi * 2..32 + hi * 2 + 2]);
+                    self.set_bits(h, attr, &hv);
+                }
+            } else {
+                self.set_bits(halves[0], attr, &bits_of(attr, 18));
+            }
+        }
+        // Contents. RAMB16 narrow: INIT bit n -> BRAM[n >> 13].DATA[n & 0x1fff];
+        // with a 36-bit port ISE swizzles bit w to narrow position
+        // (w & 0xf) | (w & 0x10) << 9 | (w & 0x3fe0) >> 1 (parity likewise).
+        let wide = kind == "RAMB16" && (num("DATA_WIDTH_A") == 36 || num("DATA_WIDTH_B") == 36);
+        let (ninit, ninitp) = if kind == "RAMB16" { (0x40, 8) } else { (0x20, 4) };
+        let mut data = vec![false; ninit * 256];
+        for i in 0..ninit {
+            let v = bits_of(&format!("INIT_{i:02X}"), 256);
+            data[i * 256..i * 256 + 256].copy_from_slice(&v);
+        }
+        let mut datap = vec![false; ninitp * 256];
+        for i in 0..ninitp {
+            let v = bits_of(&format!("INITP_{i:02X}"), 256);
+            datap[i * 256..i * 256 + 256].copy_from_slice(&v);
+        }
+        if wide {
+            let mut d = vec![false; data.len()];
+            for (w, &b) in data.iter().enumerate() {
+                d[(w & 0xf) | (w & 0x10) << 9 | (w & 0x3fe0) >> 1] = b;
+            }
+            data = d;
+            let mut d = vec![false; datap.len()];
+            for (w, &b) in datap.iter().enumerate() {
+                d[(w & 1) | (w & 2) << 9 | (w & 0x7fc) >> 1] = b;
+            }
+            datap = d;
+        }
+        for (hi, &h) in halves.iter().enumerate() {
+            self.set_bits(h, "DATA", &data[hi * 0x2000..hi * 0x2000 + 0x2000]);
+            self.set_bits(h, "DATAP", &datap[hi * 0x400..hi * 0x400 + 0x400]);
+        }
+        // A tile used as RAMB8s is configured combined while its contents load,
+        // then split by a second write of that frame (as ISE does).
+        if kind == "RAMB8" {
+            for half in ["BRAM[0]", "BRAM[1]"] {
+                let h = cell.bel(self.slot(half));
+                self.set_bits(h, "COMBINE", &[true]);
+                self.fixup = true;
+                self.set_bits(h, "COMBINE", &[false]);
+                self.fixup = false;
+            }
+        }
+        Ok(())
+    }
+
+    /// A raw number into a bit-vector attribute (LSB first, polarity ignored).
+    fn set_raw_num(&mut self, bcrd: BelCoord, name: &str, v: u64) {
+        let n = self.attr_len(bcrd, name);
+        let bits: Vec<bool> = (0..n).map(|i| v >> i & 1 != 0).collect();
+        self.set_raw_bits(bcrd, name, &bits);
+    }
+
+    /// Set raw bits `idx` of the switchbox mux driving the wire named `dst`
+    /// in tile `tcrd` (defaults ISE writes for unused CMT inputs).
+    fn set_mux_bits_raw(&mut self, tcrd: TileCoord, dst: &str, idx: &[usize]) {
+        let tcls = &self.int.tile_classes[self.edev[tcrd].class];
+        let mut bits = vec![];
+        for (_, info) in &tcls.bels {
+            if let BelInfo::SwitchBox(sb) = info {
+                for item in &sb.items {
+                    if let SwitchBoxItem::Mux(m) = item
+                        && m.dst.to_string(self.int, tcls).ends_with(dst)
+                    {
+                        bits.extend(idx.iter().map(|&i| m.bits[i]));
+                    }
+                }
+            }
+        }
+        assert!(!bits.is_empty(), "no mux for {dst}");
+        for b in bits {
+            self.set_tb(tcrd, b, true);
+        }
+    }
+
+    /// Clock management: DCM (frequency synthesis only so far), PLL, BUFIO2.
+    /// Values are as ISE 14.7 bitgen writes them; the PLL loop settings come
+    /// from the PLL_MULT table (BANDWIDTH OPTIMIZED = the HIGH column).
+    fn cmt_config(&mut self, c: &NCell, cell: CellCoord) -> Result<(), String> {
+        let belname = c.bel.2.clone();
+        let bcrd = cell.bel(self.slot(&belname));
+        let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+        let num = |k: &str, d: u64| -> u64 {
+            p(k).map(|v| if v.len() > 8 && v.chars().all(|ch| ch == '0' || ch == '1') { u64::from_str_radix(&v, 2).unwrap() } else { v.parse().unwrap_or(d) }).unwrap_or(d)
+        };
+        match c.typ.as_str() {
+            "BUFIO2" => {
+                // Divide 1, bypassed, feeding the CMT (DIVCLK_CMT).
+                self.set_bits(bcrd, "ENABLE", &[true]);
+                self.set_bits(bcrd, "CMT_ENABLE", &[true]);
+                // DIVIDE stays 000 when bypassed (as ISE writes it).
+                self.set_bits(bcrd, "DIVIDE_BYPASS", &[true]);
+            }
+            "DCM" => {
+                let used: Vec<&str> = c.conns.keys().map(String::as_str).collect();
+                for out in ["CLK0", "CLK90", "CLK180", "CLK270", "CLK2X", "CLK2X180", "CLKDV", "PSDONE"] {
+                    if used.contains(&out) {
+                        return Err(format!("{}: DCM output {out} is not supported yet (only CLKFX/CLKFX180/LOCKED)", c.name));
+                    }
+                }
+                if p("CLK_FEEDBACK").as_deref().unwrap_or("1X") != "NONE" {
+                    return Err(format!("{}: DCM needs CLK_FEEDBACK = \"NONE\" (DLL not supported yet)", c.name));
+                }
+                // ISE's register blocks first: some of their bits are the same
+                // bits as the fields below (CLKFX_*, DESKEW_ADJUST, ...), which
+                // must win.
+                for (attr, bits) in [
+                    ("REG_DFS_S", &[2usize, 9, 10, 17, 21, 24, 26, 32, 33, 37, 41, 43, 45, 52, 64, 68, 76, 77][..]),
+                    ("REG_DLL_C", &[0, 1, 17][..]),
+                    ("REG_DLL_S", &[0, 6, 8][..]),
+                    ("REG_INTERFACE", &[3, 5, 9, 10, 12, 13, 18, 37][..]),
+                ] {
+                    let n = self.attr_len(bcrd, attr);
+                    let raw: Vec<bool> = (0..n).map(|i| bits.contains(&i)).collect();
+                    self.set_raw_bits(bcrd, attr, &raw);
+                }
+                let (m, d) = (num("CLKFX_MULTIPLY", 4), num("CLKFX_DIVIDE", 1));
+                self.set_raw_num(bcrd, "CLKFX_MULTIPLY", m - 1);
+                self.set_raw_num(bcrd, "CLKFX_DIVIDE", d - 1);
+                let deskew = match p("DESKEW_ADJUST").as_deref() {
+                    None | Some("SYSTEM_SYNCHRONOUS") => 5,
+                    Some("SOURCE_SYNCHRONOUS") => 0,
+                    Some(v) => v.parse().unwrap_or(5),
+                };
+                self.set_raw_num(bcrd, "DESKEW_ADJUST", deskew);
+                for (attr, v) in [
+                    ("CLKDV_COUNT_MAX", 1u64), ("CLKDV_MODE", 1), ("CLKFXDV_DIVIDE", 3), ("CLKIN_CLKFB_ENABLE", 1),
+                    ("CLKOUT_PHASE_SHIFT", 1), ("CLK_FEEDBACK_DISABLE", 1), ("DFS_ENABLE", 1),
+                    ("DUTY_CYCLE_CORRECTION", 1), ("REG_DFS_C", 5), ("SPREAD_SPECTRUM", 0x7f),
+                ] {
+                    self.set_raw_num(bcrd, attr, v);
+                }
+                if used.contains(&"CLKFX") || used.contains(&"CLKFX180") {
+                    self.set_raw_num(bcrd, "OUT_CLKFX_ENABLE", 1);
+                }
+                // Unconnected test/control inputs: inversion bits set.
+                for pin in ["CTLMODE", "CTLOSC1", "CTLOSC2", "FREEZEDFS", "FREEZEDLL", "STSADRS"] {
+                    self.set_input_inv_raw(bcrd, pin, true);
+                }
+                // The CMT's voltage regulator, in this DCM's tile.
+                let vreg = cell.bel(self.slot("CMT_VREG"));
+                self.set_raw_num(vreg, "REG_REG", 0b1_0100_0011);
+                self.dcm_used = true;
+            }
+            "PLL" => {
+                // Counter for divide d: high/low times, odd-divide edge, bypass at 1.
+                let counter = |g: &mut Self, name: &str, d: u64, en: bool| {
+                    let (ht, lt) = if d == 1 { (1, 1) } else { (d / 2, d - d / 2) };
+                    g.set_raw_num(bcrd, &format!("PLL_{name}_HT"), ht);
+                    g.set_raw_num(bcrd, &format!("PLL_{name}_LT"), lt);
+                    g.set_raw_num(bcrd, &format!("PLL_{name}_EDGE"), (d > 1 && d % 2 == 1) as u64);
+                    g.set_raw_num(bcrd, &format!("PLL_{name}_NOCOUNT"), (d == 1) as u64);
+                    if en {
+                        g.set_raw_num(bcrd, &format!("PLL_{name}_EN"), 1);
+                    }
+                };
+                let mult = num("CLKFBOUT_MULT", 1);
+                counter(self, "CLKFBOUT", mult, true);
+                counter(self, "CLKFBOUT2", 1, false);
+                counter(self, "DIVCLK", num("DIVCLK_DIVIDE", 1), true);
+                for i in 0..6 {
+                    let used = c.conns.contains_key(&format!("CLKOUT{i}"));
+                    counter(self, &format!("CLKOUT{i}"), num(&format!("CLKOUT{i}_DIVIDE"), 1), used);
+                }
+                let bw = match p("BANDWIDTH").as_deref().unwrap_or("OPTIMIZED") {
+                    "LOW" => "LOW",
+                    _ => "HIGH",
+                };
+                let row = format!("_{mult}");
+                for (attr, field) in [("PLL_CP", format!("PLL_CP_{bw}")), ("PLL_RES", format!("PLL_RES_{bw}")), ("PLL_LFHF", format!("PLL_LFHF_{bw}"))] {
+                    let v = self.table("PLL_MULT", &row, &field);
+                    let raw: Vec<bool> = (0..v.len()).map(|i| v[i]).collect();
+                    self.set_raw_bits(bcrd, attr, &raw);
+                }
+                for attr in ["PLL_LOCK_CNT", "PLL_LOCK_FB_DLY", "PLL_LOCK_REF_DLY", "PLL_LOCK_SAT_HIGH", "PLL_UNLOCK_CNT"] {
+                    let v = self.table("PLL_MULT", &row, attr);
+                    let raw: Vec<bool> = (0..v.len()).map(|i| v[i]).collect();
+                    self.set_raw_bits(bcrd, attr, &raw);
+                }
+                let intfb = match p("COMPENSATION").as_deref().unwrap_or("SYSTEM_SYNCHRONOUS") {
+                    "INTERNAL" => 2,
+                    _ => return Err(format!("{}: PLL COMPENSATION other than INTERNAL is not supported yet", c.name)),
+                };
+                self.set_raw_num(bcrd, "PLL_INTFB", intfb);
+                let clkin2 = p("CLKIN_SOURCE").as_deref() == Some("CLKIN2");
+                self.set_raw_num(bcrd, "CLKINSEL_STATIC_VAL", clkin2 as u64);
+                for (attr, v) in [
+                    ("ENABLE", 1u64), ("PLL_ADD_LEAKAGE", 2), ("PLL_AVDD_COMP_SET", 2), ("PLL_CLAMP_BYPASS", 1),
+                    ("PLL_CLAMP_REF_SEL", 1), ("PLL_CLKCNTRL", 1), ("PLL_CLK_LOST_DETECT", 1), ("PLL_CP_REPL", 1),
+                    ("PLL_DVDD_COMP_SET", 2), ("PLL_EN", 1), ("PLL_EN_LEAKAGE", 2), ("PLL_EN_VCO0", 1),
+                    ("PLL_EN_VCO1", 1), ("PLL_EN_VCO2", 1), ("PLL_EN_VCO3", 1), ("PLL_EN_VCO4", 1), ("PLL_EN_VCO5", 1),
+                    ("PLL_EN_VCO6", 1), ("PLL_EN_VCO7", 1), ("PLL_EN_VCO_DIV1", 1), ("PLL_EN_VCO_DIV6", 1),
+                    ("PLL_PFD_CNTRL", 8), ("PLL_PFD_DLY", 1), ("PLL_PWRD_CFG", 1), ("PLL_SEL_SLIPD", 1),
+                    ("PLL_TEST_IN_WINDOW", 1),
+                ] {
+                    self.set_raw_num(bcrd, attr, v);
+                }
+                let en_cntrl: &[usize] = &[
+                    10, 15, 20, 22, 23, 24, 25, 26, 28, 31, 32, 33, 34, 35, 36, 38, 42, 44, 46, 47, 48, 49, 54, 55, 58, 59,
+                    60, 64, 65, 66, 67, 70, 74,
+                ];
+                let raw: Vec<bool> = (0..85).map(|i| en_cntrl.contains(&i)).collect();
+                self.set_raw_bits(bcrd, "PLL_EN_CNTRL", &raw);
+                // Unused SKEWCLKIN inputs: mux defaults.
+                let tcrd = self.edev.bel_tile(bcrd);
+                self.set_mux_bits_raw(tcrd, "OMUX_PLL_SKEWCLKIN1", &[1, 2]);
+                self.set_mux_bits_raw(tcrd, "OMUX_PLL_SKEWCLKIN2", &[1, 2]);
+            }
+            _ => unreachable!(),
+        }
+        Ok(())
+    }
+
     /// Settings that depend on the design as a whole.
     pub fn global(&mut self, cells: &[NCell]) {
+        // RAM/SRL LUTs change at run time: ISE masks the LUT frames of their
+        // column region (GLUTMASK in the region's HCLK tile).
+        let mut masked: HashSet<(usize, RowId)> = HashSet::new();
+        for c in cells.iter().filter(|c| c.typ == "SLICE_LUTRAM") {
+            let (x, y, _) = c.bel;
+            masked.insert((x, self.edev.chip.row_hclk(RowId::from_idx(y))));
+        }
+        for (x, hrow) in masked {
+            let cell = CellCoord { die: DieId::from_idx(0), col: ColId::from_idx(x), row: hrow };
+            let b = cell.bel(self.slot("GLUTMASK_HCLK"));
+            for f in ["FRAME21", "FRAME22", "FRAME24", "FRAME25"] {
+                self.set_bits(b, f, &[true]);
+            }
+        }
+        // With a DCM in use, every DCM tile's regulator gets this REG_BG.
+        if self.dcm_used {
+            for b in self.all_bels("CMT_VREG") {
+                let tcrd = self.edev.bel_tile(b);
+                if self.int.tile_classes[self.edev[tcrd].class].name == "CMT_DCM" {
+                    self.set_raw_num(b, "REG_BG", 0b101_0010_0000);
+                }
+            }
+        }
+        // PairMux settings: the pattern whose sources match every used output.
+        let pms: Vec<_> = self.pair_muxes.drain().collect();
+        for ((tcrd, bslot, idx), used) in pms {
+            let tcls = &self.int.tile_classes[self.edev[tcrd].class];
+            let BelInfo::SwitchBox(sb) = &tcls.bels[bslot] else { unreachable!() };
+            let SwitchBoxItem::PairMux(pm) = &sb.items[idx] else { unreachable!() };
+            let (_, pat) = pm
+                .src
+                .iter()
+                .find(|(key, _)| (0..2).all(|k| used[k].is_none_or(|u| key[k].is_some_and(|s| s.tw == u))))
+                .expect("no pair mux setting for this combination");
+            let (pat, bits) = (pat.clone(), pm.bits.clone());
+            for (i, b) in bits.into_iter().enumerate() {
+                self.set_tb(tcrd, b, pat[i]);
+            }
+        }
         // In a used SLICEX, ISE writes the "unused" encodings for muxes the
         // design doesn't set: OUTMUX=O5 and FFMUX=<L>X (raw bit 1). In
         // SLICEL/SLICEM those encodings are all zeros.
