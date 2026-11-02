@@ -47,6 +47,25 @@ build/nextpnr-build/nextpnr-himbaechel --device xc6slx9-2tqg144 \
 Requires Rust 1.85+ (edition 2024), Python 3.10+, curl, CMake, a C++17
 compiler, Boost and Eigen (for nextpnr), and Yosys.
 
+## ISE (for validation)
+
+ISE 14.7 is only used to check our output (XDL → NCD → `drc`/`bitgen`). It
+installs into a host directory, and a small container (`docker/ise`, Ubuntu
+14.04 plus ISE's libraries) supplies the old userland it needs.
+
+1. Download `Xilinx_ISE_DS_Lin_14.7_1015_1.tar` from AMD and extract it.
+2. Put a free WebPACK licence in `~/.Xilinx/Xilinx.lic`.
+3. Run the one-time install, about 10 minutes and 18 GB:
+   ```
+   tools/ise-install.sh ~/path/to/Xilinx_ISE_DS_Lin_14.7_1015_1   # -> ~/Xilinx
+   ```
+4. Run any ISE command-line tool. The current directory is mounted, so
+   relative paths work:
+   ```
+   tools/ise.sh xdl -report xc6slx9tqg144 xc6slx9.xdlrc
+   tools/ise.sh bitgen -w design.ncd
+   ```
+
 ## How prjcombine maps onto himbaechel
 
 | prjcombine | himbaechel |
