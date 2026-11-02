@@ -49,6 +49,7 @@ struct Spartan6Impl : HimbaechelAPI
     void prePlace() override;
 
     bool isValidBelForCellType(IdString cell_type, BelId bel) const override;
+    BelBucketId getBelBucketForCellType(IdString cell_type) const override;
     bool isBelLocationValid(BelId bel, bool explain_invalid = false) const override;
 
     std::string getDefaultRouter() const override { return "router2"; }
@@ -58,6 +59,7 @@ struct Spartan6Impl : HimbaechelAPI
     void pack_io();
     void pack_clocking();
     void pack_logic();
+    void pack_lut_pairs();
     void place_bufgs_for_pad(CellInfo *iob);
     pool<BelId> used_bufgmux;
 

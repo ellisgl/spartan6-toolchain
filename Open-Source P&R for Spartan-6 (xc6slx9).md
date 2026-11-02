@@ -26,7 +26,7 @@ Spartan-6 logic resources are close to 7-series: 4×LUT6, 8 storage elements, CA
 
 ### 3. Packer
 
-> **Status (Nov 1):** first version in `uarch/spartan6`, using sub-bels for slices. Blinky packs, places and routes on the xc6slx9 with the Mojo V3 pinout. Supported: LUTs (LUT6 bels only), FFs, simple I/O and BUFG. Not supported yet: LUT5/5FF pairing, CARRY4, F7/F8, SRL/LUTRAM, BRAM, DSP and clock management (DCM/PLL).
+> **Status (Nov 1):** first version in `uarch/spartan6`, using sub-bels for slices. Blinky packs, places and routes on the xc6slx9 with the Mojo V3 pinout. Supported: LUTs (LUT6 bels only), FFs, simple I/O and BUFG. **Nov 2:** LUT6/LUT5 pairing added (two LUTs with ≤5 merged inputs share a LUT6 site, A6 tied high), byte-identical to ISE and passing the hardware tests. Not supported yet: 5FFs, CARRY4, F7/F8, SRL/LUTRAM, BRAM, DSP and clock management (DCM/PLL).
 
 This is where the Spartan-6-specific logic lives:
 

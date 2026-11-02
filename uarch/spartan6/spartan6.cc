@@ -35,6 +35,7 @@ po::options_description Spartan6Impl::getUArchOptions()
 {
     po::options_description specific("Spartan-6 specific options");
     specific.add_options()("ucf", po::value<std::string>(), "UCF constraints file (LOC, IOSTANDARD, ...)");
+    specific.add_options()("nolut5", "don't pair LUTs into shared LUT6/LUT5 sites");
     return specific;
 }
 
@@ -79,6 +80,7 @@ void Spartan6Impl::pack()
                         id_GND);
     pack_clocking();
     pack_logic();
+    pack_lut_pairs();
 }
 
 void Spartan6Impl::prePlace()
@@ -98,16 +100,25 @@ void Spartan6Impl::prePlace()
     }
 }
 
+// The LUT5 half of a fractured LUT6 (see pack_lut_pairs) has its own cell
+// type so that only paired LUTs land on LUT5 bels.
+BelBucketId Spartan6Impl::getBelBucketForCellType(IdString cell_type) const
+{
+    return cell_type == id_SLICE_LUT5 ? id_SLICE_LUT : cell_type;
+}
+
 bool Spartan6Impl::isValidBelForCellType(IdString cell_type, BelId bel) const
 {
     IdString bel_type = ctx->getBelType(bel);
+    int z = ctx->getBelLocation(bel).z;
+    if (cell_type == id_SLICE_LUT5)
+        return bel_type == id_SLICE_LUT && s6z::kind(z) == s6z::LUT5;
     if (bel_type != cell_type)
         return false;
     if (bel_type == id_IOB)
         return bonded_iobs.count(bel);
-    int z = ctx->getBelLocation(bel).z;
-    // Not supported yet: LUT6 fracturing (LUT5 bels) and the O5-fed 5FFs.
-    // Both need the LUT6/LUT5 pairing rules (A6 tied high, shared inputs).
+    // LUT5 bels only take the LUT5 half of a pair. Not supported yet: the
+    // O5-fed 5FFs.
     if (bel_type == id_SLICE_LUT && s6z::kind(z) == s6z::LUT5)
         return false;
     if (bel_type == id_SLICE_FF && s6z::kind(z) == s6z::FF5)

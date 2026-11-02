@@ -125,7 +125,7 @@ Commands:
   every differing bit with its meaning.
 - **`s6-bitgen bits`:** lists a bitstream's set bits.
 
-Supported so far: LUT6s, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs, outputs,
+Supported so far: LUT6s and LUT6/LUT5 pairs, FFs, LVTTL/LVCMOS33/LVCMOS25 inputs, outputs,
 tristate outputs (OBUFT) and bidirectional pins (IOBUF), PULLUP/PULLDOWN,
 BUFG and global clock routing. Only LVTTL has been verified
 against ISE. Not supported yet: everything the packer doesn't support, plus
@@ -236,6 +236,14 @@ primary source is kept, as an always-on pip) and factory-test wires
   LUT1–6 and INV to `SLICE_LUT`, and FDRE/FDSE/FDCE/FDPE to `SLICE_FF`.
   A pad that only feeds BUFGs uses `GCLK_I`. Its BUFG is placed during packing
   on a BUFGMUX reachable from that pad, found by searching the routing graph.
+- **LUT pairing (LUT6 fracturing):** two LUTs with at most 5 distinct inputs
+  between them, sharing at least one, are packed into one LUT6 site: both get
+  the merged inputs on A1..A5 (tables rewritten), the LUT6 half (O6) gets A6
+  tied to VCC, and the LUT5 half (O5, cell type `SLICE_LUT5`) is a cluster
+  child one z above. Partners are chosen greedily by most shared inputs.
+  `-o nolut5` turns this off. On the test designs it saves 25–35% of LUT
+  sites. The XDL writer gives ISE `O6=(A6*f)`, since ISE rejects a tied-high
+  A6 the equation doesn't use.
 - **Placement rules:** the FFs in a slice share CLK, CE and SR, and
   sync/async mode. I/Os only go on bonded pads.
 - **Constants:** GND/VCC are routed by router2 to any `TIE_0`/`TIE_1`/`CONST_*`
@@ -243,8 +251,8 @@ primary source is kept, as an always-on pip) and factory-test wires
 
 Packer limits for now:
 
-- **LUT5 and 5FF bels are disabled.** LUT6 fracturing needs the A6-high and
-  shared-input rules.
+- **5FF bels are disabled.** Only 4 of a slice's 8 storage elements are used;
+  the 5FFs need their D from O5 (or AX..DX) and the no-latch rule.
 - **Not supported yet:** CARRY4, MUXF7/F8, SRL, LUTRAM, BRAM and DSP. Synthesize
   with `-nocarry -nowidelut -nosrl -nolutram -nobram -nodsp`, as
   `make blinky` does.

@@ -257,4 +257,131 @@ void Spartan6Impl::pack_logic()
     log_info("Packed %d LUTs and %d FFs.\n", luts, ffs);
 }
 
+// LUT6 fracturing: two LUTs with at most 5 distinct inputs between them share
+// one LUT6 site. Both get the merged inputs on A1..A5 (tables rewritten to
+// match); the LUT6 half (O6) has A6 tied high and the LUT5 half (O5) reads
+// the lower half of the table. The pair is a cluster: root on the LUT6 bel,
+// child (type SLICE_LUT5) on the LUT5 bel of the same letter.
+namespace {
+// Distinct input nets of a LUT in pin order, or false if it can't be paired
+// (6 inputs, or a table input left unconnected).
+bool lut_inputs(CellInfo *ci, std::vector<NetInfo *> &nets)
+{
+    static const IdString a_ports[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+    const Property &init = ci->params.at(id_INIT);
+    int k = 0;
+    while ((1u << k) < init.str.size())
+        k++;
+    nets.clear();
+    for (int i = 0; i < 6; i++) {
+        NetInfo *n = ci->getPort(a_ports[i]);
+        if (i >= k) {
+            if (n)
+                return false;
+            continue;
+        }
+        if (!n)
+            return false;
+        if (std::find(nets.begin(), nets.end(), n) == nets.end())
+            nets.push_back(n);
+    }
+    return nets.size() <= 5;
+}
+
+// Rewrite a LUT as a 5-input table over `merged` (on A1..A5).
+void remap_lut(Context *ctx, CellInfo *ci, const std::vector<NetInfo *> &merged)
+{
+    static const IdString a_ports[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+    const Property init = ci->params.at(id_INIT);
+    int size = init.str.size();
+    std::vector<int> pos; // old input i -> new input index
+    for (int i = 0; (1 << i) < size; i++) {
+        NetInfo *n = ci->getPort(a_ports[i]);
+        pos.push_back(std::find(merged.begin(), merged.end(), n) - merged.begin());
+    }
+    Property table(0, 32);
+    for (int addr = 0; addr < 32; addr++) {
+        int old = 0;
+        for (size_t i = 0; i < pos.size(); i++)
+            if (addr & (1 << pos[i]))
+                old |= 1 << i;
+        table.str[addr] = init.str.at(old % size) == '1' ? Property::S1 : Property::S0;
+    }
+    table.update_intval();
+    ci->params[id_INIT] = table;
+    for (auto p : a_ports)
+        ci->disconnectPort(p);
+    for (size_t i = 0; i < merged.size(); i++) {
+        ci->ports[a_ports[i]].name = a_ports[i];
+        ci->ports[a_ports[i]].type = PORT_IN;
+        ci->connectPort(a_ports[i], merged[i]);
+    }
+}
+} // namespace
+
+void Spartan6Impl::pack_lut_pairs()
+{
+    if (ctx->args.options.count("nolut5")) {
+        log_info("LUT pairing disabled (-o nolut5).\n");
+        return;
+    }
+    NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
+    pool<IdString> done;
+    std::vector<NetInfo *> a_in, b_in, merged;
+    int pairs = 0;
+    for (auto &cell : ctx->cells) {
+        CellInfo *a = cell.second.get();
+        if (a->type != id_SLICE_LUT || done.count(a->name) || !lut_inputs(a, a_in))
+            continue;
+        // Best partner: most shared inputs, then fewest merged inputs.
+        CellInfo *best = nullptr;
+        int best_shared = 0, best_union = 0;
+        for (NetInfo *n : a_in) {
+            if (n->users.entries() > 32 || n->constant_value != IdString())
+                continue;
+            for (auto &usr : n->users) {
+                CellInfo *b = usr.cell;
+                if (b == a || b->type != id_SLICE_LUT || done.count(b->name) || !lut_inputs(b, b_in))
+                    continue;
+                int shared = 0;
+                for (NetInfo *m : b_in)
+                    if (std::find(a_in.begin(), a_in.end(), m) != a_in.end())
+                        shared++;
+                int uni = a_in.size() + b_in.size() - shared;
+                if (uni > 5)
+                    continue;
+                if (shared > best_shared || (shared == best_shared && uni < best_union)) {
+                    best = b;
+                    best_shared = shared;
+                    best_union = uni;
+                }
+            }
+        }
+        if (!best)
+            continue;
+        lut_inputs(best, b_in);
+        merged = a_in;
+        for (NetInfo *m : b_in)
+            if (std::find(merged.begin(), merged.end(), m) == merged.end())
+                merged.push_back(m);
+        remap_lut(ctx, a, merged);
+        remap_lut(ctx, best, merged);
+        a->ports[id_A6].name = id_A6;
+        a->ports[id_A6].type = PORT_IN;
+        a->connectPort(id_A6, vcc);
+        best->type = id_SLICE_LUT5;
+        a->cluster = a->name;
+        a->constr_children.push_back(best);
+        best->cluster = a->name;
+        best->constr_x = 0;
+        best->constr_y = 0;
+        best->constr_z = s6z::LUT5 - s6z::LUT6;
+        best->constr_abs_z = false;
+        done.insert(a->name);
+        done.insert(best->name);
+        pairs++;
+    }
+    log_info("Packed %d LUT pairs into shared LUT6/LUT5 sites.\n", pairs);
+}
+
 NEXTPNR_NAMESPACE_END

@@ -123,6 +123,16 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// Set bits `offset..offset + val.len()` of a bit-vector attribute.
+    pub fn set_bits_at(&mut self, bcrd: BelCoord, name: &str, offset: usize, val: &[bool]) {
+        let (tcrd, attr, _) = self.attr(bcrd, name);
+        let BelAttribute::BitVec(bits) = attr else { panic!("{name} is not a bit vector") };
+        assert!(offset + val.len() <= bits.len(), "{name}: width");
+        for (b, &v) in bits[offset..].iter().zip(val) {
+            self.set_tb(tcrd, b.bit, v ^ b.inv);
+        }
+    }
+
     pub fn set_bitvec(&mut self, bcrd: BelCoord, name: &str, val: &BitVec) {
         let v: Vec<bool> = (0..val.len()).map(|i| val[i]).collect();
         self.set_bits(bcrd, name, &v);
@@ -266,15 +276,25 @@ impl<'a> Gen<'a> {
         let cell = self.cell(x, y);
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" | "BUFGMUX" => {}
-            "SLICE_LUT" => {
+            "SLICE_LUT" | "SLICE_LUT5" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = cell.bel(self.slot(slot));
                 self.used_slices.insert(bcrd);
-                // LUTk uses A1..Ak; replicate its table over the unused inputs.
+                // One 64-bit table per letter: O6 reads all of it, O5 the lower
+                // half (A6 = 0). A LUT6 sharing its site with a LUT5 has A6
+                // tied high and lives in the upper half; otherwise LUTk uses
+                // A1..Ak and its table is replicated over the unused inputs.
                 let init: Vec<bool> = c.params["INIT"].chars().rev().map(|ch| ch == '1').collect();
                 let k = init.len();
-                let table: Vec<bool> = (0..64).map(|i| init[i % k]).collect();
-                self.set_bits(bcrd, sub, &table);
+                let l = &sub[..1];
+                let range = match &sub[1..] {
+                    "6LUT" if k <= 32 && c.conns.contains_key("A6") => 32..64,
+                    "6LUT" => 0..64,
+                    "5LUT" => 0..32,
+                    other => return Err(format!("{}: unexpected LUT bel {other}", c.name)),
+                };
+                let table: Vec<bool> = range.clone().map(|i| init[i % k]).collect();
+                self.set_bits_at(bcrd, &format!("{l}6LUT"), range.start, &table);
             }
             "SLICE_FF" => {
                 let (slot, sub) = belname.split_once('.').unwrap();

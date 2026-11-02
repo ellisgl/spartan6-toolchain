@@ -407,7 +407,7 @@ fn main() {
         let (x, y, ref belname) = c.bel;
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" => {}
-            "SLICE_LUT" | "SLICE_FF" => {
+            "SLICE_LUT" | "SLICE_LUT5" | "SLICE_FF" => {
                 let (slot, sub) = belname.split_once('.').unwrap();
                 let bcrd = names.bel(x, y, slot);
                 let (tile, site) = names.site(bcrd);
@@ -426,14 +426,25 @@ fn main() {
                 let l = sub.chars().next().unwrap();
                 let inst = site.clone();
                 let site_cand = |pin: String, output: bool| Cand::Site { bcrd, pins: vec![pin], inst: inst.clone(), output };
-                if c.typ == "SLICE_LUT" {
-                    assert_eq!(&sub[1..], "6LUT", "{}: only LUT6 bels are supported", c.name);
+                if c.typ != "SLICE_FF" {
+                    // <L>6LUT drives O6, <L>5LUT drives O5. A LUT6 sharing its
+                    // site with a LUT5 has a 5-input table and A6 tied high.
+                    let half = &sub[1..2];
                     let mut table = lut_table(&c.params["INIT"]);
                     let k = table.len().trailing_zeros() as usize;
                     let mut vars: Vec<usize> = (1..=k).collect();
-                    for j in (1..=k).rev() {
+                    for j in (1..=6).rev() {
                         let port = format!("A{j}");
                         if !c.conns.contains_key(&port) {
+                            continue;
+                        }
+                        if j > k {
+                            // A6 = 1 selecting O6's half of the table: just wire it.
+                            if routed {
+                                cands.insert((ci, port), site_cand(format!("{l}{j}"), false));
+                            } else {
+                                pins.insert((ci, port), (inst.clone(), format!("{l}{j}")));
+                            }
                             continue;
                         }
                         if routed {
@@ -451,10 +462,29 @@ fn main() {
                             }
                         }
                     }
+                    if half == "6" && k <= 5 && c.conns.contains_key("A6") {
+                        // Paired with a LUT5: ISE wants A6 in the O6 equation
+                        // (O6 = A6 * f), else the tied-high A6 pin is "partially
+                        // connected". The table's lower half is O5's anyway.
+                        let n = table.len();
+                        table = (0..64).map(|i| i >= 32 && table[i % n]).collect();
+                        vars = (1..=6).collect();
+                    }
                     let expr = lut_expr(&table, &vars);
-                    s.set(&format!("{l}6LUT"), &[&c.name, "#LUT", &format!("O6={expr}")]);
+                    s.set(&format!("{l}{half}LUT"), &[&c.name, "#LUT", &format!("O{half}={expr}")]);
                     if let Some(&ni) = c.conns.get("O") {
-                        if routed {
+                        if half == "5" {
+                            // O5 leaves only on <L>MUX (OUTMUX=O5), or feeds a FF inside.
+                            if routed {
+                                cands.insert(
+                                    (ci, "O".into()),
+                                    Cand::Site { bcrd, pins: vec![format!("{l}MUX")], inst: inst.clone(), output: true },
+                                );
+                            } else {
+                                s.set(&format!("{l}OUTMUX"), &["", "O5"]);
+                                pins.insert((ci, "O".into()), (inst.clone(), format!("{l}MUX")));
+                            }
+                        } else if routed {
                             // O6 can leave on <L>, or on <L>MUX through OUTMUX=O6.
                             cands.insert(
                                 (ci, "O".into()),
