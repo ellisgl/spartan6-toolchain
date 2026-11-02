@@ -14,7 +14,9 @@ Spartan-6 database.
   SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180) and
   PLL_BASE/PLL_ADV (COMPENSATION INTERNAL).
 - **Not yet:** DSP and SRL cascades, the other LUTRAM primitives, latches,
-  clock inversion, DCM DLL outputs, timing (unit delays only).
+  clock inversion, DCM DLL outputs. Timing comes from a delay model fitted
+  to ISE's timing output (see the xc6slx9-pnr README); DSP paths are
+  pessimistic.
 - **Checked against ISE 14.7:** designs placed and routed here are converted
   to XDL and pass ISE's DRC, and the open bitstream writer's output is
   byte-identical to ISE bitgen's for the same placement and routing. Test

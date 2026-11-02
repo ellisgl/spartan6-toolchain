@@ -52,6 +52,11 @@ void Spartan6Impl::init_database(Arch *arch)
     if (die != "xc6slx9")
         log_error("Only xc6slx9 is supported so far (got %s)\n", die.c_str());
     arch->load_chipdb(stringf("spartan6/chipdb-%s.bin", die.c_str()));
+    // Speed grade from the device name (default -2, as on the Mojo V3). The
+    // delay model was measured for -2 only; the database gives the other
+    // grades the same values.
+    std::string speed = m[2].str().empty() ? "2" : m[2].str();
+    arch->set_speed_grade("-" + speed);
     std::string pkg = m[3].str();
     for (auto &c : pkg)
         c = toupper(c);
@@ -92,6 +97,19 @@ void Spartan6Impl::pack()
 
 void Spartan6Impl::prePlace()
 {
+    // DSP timing depends on its pipeline registers: pick the variant from
+    // the chip database (DSP_P, DSP_M or DSP_IN).
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type != id_DSP || !ctx->speed_grade)
+            continue;
+        auto on = [&](const char *k) {
+            auto it = ci->params.find(ctx->id(k));
+            return it != ci->params.end() && it->second.str.find('1') != std::string::npos;
+        };
+        const char *variant = on("PREG") ? "DSP_P" : on("MREG") ? "DSP_M" : "DSP_IN";
+        ci->timing_index = ctx->get_cell_timing_idx(ctx->id(variant));
+    }
     ff_info.assign(ctx->cells.size(), FFInfo());
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
@@ -149,6 +167,13 @@ bool Spartan6Impl::isBelLocationValid(BelId bel, bool explain_invalid) const
     IdString type = ctx->getBelType(bel);
     if (!type.in(id_SLICE_FF, id_SLICE_LUT, id_CARRY4, id_SLICE_F7MUX, id_SLICE_F8MUX))
         return true;
+    // RAM/SRL cells share the LUT bucket, and placer moves within a bucket
+    // don't all ask isValidBelForCellType: check the SLICEM requirement here.
+    if (type == id_SLICE_LUT) {
+        const CellInfo *ci = ctx->getBoundBelCell(bel);
+        if (ci && ci->type == id_SLICE_LUTRAM && !isValidBelForCellType(ci->type, bel))
+            return false;
+    }
     Loc l = ctx->getBelLocation(bel);
     int base = s6z::slice_base(l.z);
     return slice_controls_ok(l.x, l.y, base, explain_invalid) && slice_bypass_ok(l.x, l.y, base, explain_invalid);
