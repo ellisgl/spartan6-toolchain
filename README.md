@@ -64,6 +64,7 @@ talks to the Mojo over its USB serial port):
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
+| `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
 5FFs. Shared UART helpers are in `tests/common/uart.v` (they honour the
@@ -373,6 +374,15 @@ primary source is kept, as an always-on pip) and factory-test wires
   (unused port, address bits below the width, data bits above it) are
   disconnected and used-but-undriven inputs tied low, as ISE does.
 - **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
+- **DCM DLL (CLK_FEEDBACK = 1X):** CLK0/90/180/270, CLK2X/CLK2X180 and
+  CLKDV; the DLL bits as ISE sets them, and CLKDV_DIVIDE encoded as ISE
+  does for all 22 legal values (checked against ISE for each). REG_BG in the
+  CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
+  tiles.
+- **Global clocks stay on the clock network:** clock input muxes fed from
+  general routing (chip database pip flag 2) aren't available to nets
+  driven by a BUFG; router2 otherwise sometimes finished a clock through
+  the fabric (~1 ns of skew, a hold violation in `dll`).
 - **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
   BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV fed from the BUFG on CLKIN2.
 - **Timing:** the speed grade comes from the device name (default -2);
@@ -427,10 +437,11 @@ Packer limits for now:
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
-  CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D, RAM64X1D, RAM128X1D,
-  DCM DLL outputs (CLK0/CLK2X/CLKDV; only CLKFX/
-  CLKFX180), PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2
-  driven dynamically.
+  CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D,
+  RAM64X1D, RAM128X1D, DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
+  phase shifting (CLKOUT_PHASE_SHIFT, PSDONE) and duty-cycle correction off,
+  PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2 driven
+  dynamically.
 - **Untested:** PLL fed through CLKIN1 (BUFIO2) rather than CLKIN2.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).

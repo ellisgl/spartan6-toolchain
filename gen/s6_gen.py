@@ -51,6 +51,13 @@ def main():
             ref = p.get("src_ref", [])
             if p["kind"] == "SITE" and ref[2:4] == ["MUX_CDI1", "ALT"] and "MC31" not in names[p["src"]]:
                 pip.flags = 1
+            # Flag 2: a clock input mux (IMUX_CLK) fed from general routing,
+            # not a tile clock (HCLK). The uarch keeps global clock nets off
+            # these, so their clock pins are reached through the clock
+            # network (router2 otherwise sometimes finishes through the
+            # fabric, adding ~1 ns of skew).
+            if names[p["dst"]].startswith("IMUX_CLK") and not names[p["src"]].startswith("HCLK"):
+                pip.flags |= 2
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])
             # Slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM (read by the uarch).

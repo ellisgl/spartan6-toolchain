@@ -70,8 +70,10 @@ pub struct Gen<'a> {
     /// PairMux items in use: one setting drives two wires, so the sources of
     /// both are collected first, (tile, item index) -> [source per output].
     pair_muxes: HashMap<(TileCoord, prjcombine_interconnect::db::BelSlotId, usize), [Option<prjcombine_interconnect::db::TileWireCoord>; 2]>,
-    /// A DCM or PLL is used (changes REG_BG in every DCM tile's regulator).
+    /// A PLL is used (sets REG_BG in every DCM tile's regulator).
     cmt_used: bool,
+    /// Regulators in the tiles of the DCMs used (REG_BG).
+    dcm_vregs: Vec<BelCoord>,
 }
 
 impl<'a> Gen<'a> {
@@ -80,7 +82,7 @@ impl<'a> Gen<'a> {
         for &(r, v) in DEFAULT_REGS {
             bs.regs.insert(r, v);
         }
-        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new(), fixup: false, pair_muxes: HashMap::new(), cmt_used: false }
+        Gen { edev, int, bs, rects: HashMap::new(), set_enums: HashSet::new(), used_slices: HashSet::new(), fixup: false, pair_muxes: HashMap::new(), cmt_used: false, dcm_vregs: vec![] }
     }
 
     fn set_pos(&mut self, pos: BitPos, v: bool) {
@@ -666,14 +668,25 @@ impl<'a> Gen<'a> {
             }
             "DCM" => {
                 let used: Vec<&str> = c.conns.keys().map(String::as_str).collect();
-                for out in ["CLK0", "CLK90", "CLK180", "CLK270", "CLK2X", "CLK2X180", "CLKDV", "PSDONE"] {
-                    if used.contains(&out) {
-                        return Err(format!("{}: DCM output {out} is not supported yet (only CLKFX/CLKFX180/LOCKED)", c.name));
+                if used.contains(&"PSDONE") {
+                    return Err(format!("{}: DCM dynamic phase shift (PSDONE) is not supported yet", c.name));
+                }
+                let feedback = p("CLK_FEEDBACK").unwrap_or("1X".into());
+                if !matches!(feedback.as_str(), "1X" | "NONE") {
+                    return Err(format!("{}: DCM CLK_FEEDBACK = {feedback} is not supported yet (1X or NONE)", c.name));
+                }
+                for (attr, ok) in [
+                    ("DLL_FREQUENCY_MODE", "LOW"),
+                    ("CLKOUT_PHASE_SHIFT", "NONE"),
+                    ("DUTY_CYCLE_CORRECTION", "TRUE"),
+                ] {
+                    if let Some(v) = p(attr)
+                        && v != ok
+                    {
+                        return Err(format!("{}: DCM {attr} = {v} is not supported yet ({ok})", c.name));
                     }
                 }
-                if p("CLK_FEEDBACK").as_deref().unwrap_or("1X") != "NONE" {
-                    return Err(format!("{}: DCM needs CLK_FEEDBACK = \"NONE\" (DLL not supported yet)", c.name));
-                }
+                let dll = feedback == "1X";
                 // ISE's register blocks first: some of their bits are the same
                 // bits as the fields below (CLKFX_*, DESKEW_ADJUST, ...), which
                 // must win.
@@ -697,14 +710,51 @@ impl<'a> Gen<'a> {
                 };
                 self.set_raw_num(bcrd, "DESKEW_ADJUST", deskew);
                 for (attr, v) in [
-                    ("CLKDV_COUNT_MAX", 1u64), ("CLKDV_MODE", 1), ("CLKFXDV_DIVIDE", 3), ("CLKIN_CLKFB_ENABLE", 1),
-                    ("CLKOUT_PHASE_SHIFT", 1), ("CLK_FEEDBACK_DISABLE", 1), ("DFS_ENABLE", 1),
+                    ("CLKFXDV_DIVIDE", 3u64), ("CLKIN_CLKFB_ENABLE", 1), ("CLKOUT_PHASE_SHIFT", 1), ("DFS_ENABLE", 1),
                     ("DUTY_CYCLE_CORRECTION", 1), ("REG_DFS_C", 5), ("SPREAD_SPECTRUM", 0x7f),
                 ] {
                     self.set_raw_num(bcrd, attr, v);
                 }
+                // CLKDV_DIVIDE (1.5 .. 7.5 in halves, 2 .. 16): as ISE encodes
+                // every legal value.
+                let dv = p("CLKDV_DIVIDE").and_then(|v| v.parse::<f64>().ok()).unwrap_or(2.0);
+                let half = (dv * 2.0).round() as u64;
+                if !(3..=32).contains(&half) || (half % 2 == 1 && half > 15) {
+                    return Err(format!("{}: DCM CLKDV_DIVIDE = {dv} is not a legal value", c.name));
+                }
+                let (mode, max, fall, fall2, phase) = if half % 2 == 0 {
+                    let d = half / 2;
+                    (1, d - 1, (d - 1) / 2, 0, if d % 2 == 1 { 2 } else { 0 })
+                } else {
+                    let k = (half - 1) / 2;
+                    (0, half - 1, k / 2, 3 * k / 2 + 1, if k % 2 == 1 { 3 } else { 1 })
+                };
+                for (attr, v) in [
+                    ("CLKDV_MODE", mode), ("CLKDV_COUNT_MAX", max), ("CLKDV_COUNT_FALL", fall),
+                    ("CLKDV_COUNT_FALL_2", fall2), ("CLKDV_PHASE_FALL", phase),
+                ] {
+                    self.set_raw_num(bcrd, attr, v);
+                }
+                if dll {
+                    // DLL in use (CLK0 fed back): as ISE sets it.
+                    for attr in ["DLL_ENABLE", "DFS_FEEDBACK", "CLKIN_IOB"] {
+                        self.set_raw_num(bcrd, attr, 1);
+                    }
+                    // Shared with REG_DLL_S's default bits (written above).
+                    self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 0);
+                } else {
+                    self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 1);
+                }
                 if used.contains(&"CLKFX") || used.contains(&"CLKFX180") {
                     self.set_raw_num(bcrd, "OUT_CLKFX_ENABLE", 1);
+                }
+                for out in ["CLK0", "CLK90", "CLK180", "CLK270", "CLK2X", "CLK2X180", "CLKDV"] {
+                    if used.contains(&out) {
+                        if !dll {
+                            return Err(format!("{}: DCM output {out} needs CLK_FEEDBACK = \"1X\"", c.name));
+                        }
+                        self.set_raw_num(bcrd, &format!("OUT_{out}_ENABLE"), 1);
+                    }
                 }
                 // Unconnected test/control inputs: inversion bits set.
                 for pin in ["CTLMODE", "CTLOSC1", "CTLOSC2", "FREEZEDFS", "FREEZEDLL", "STSADRS"] {
@@ -713,7 +763,7 @@ impl<'a> Gen<'a> {
                 // The CMT's voltage regulator, in this DCM's tile.
                 let vreg = cell.bel(self.slot("CMT_VREG"));
                 self.set_raw_num(vreg, "REG_REG", 0b1_0100_0011);
-                self.cmt_used = true;
+                self.dcm_vregs.push(vreg);
             }
             "PLL" => {
                 // Counter for divide d: high/low times, odd-divide edge, bypass at 1.
@@ -801,7 +851,20 @@ impl<'a> Gen<'a> {
                 self.set_bits(b, f, &[true]);
             }
         }
-        // With a DCM or PLL in use, every DCM tile's regulator gets this REG_BG.
+        // REG_BG in the CMT regulators, as ISE writes it: with a DCM or PLL
+        // in use every DCM tile's regulator loses the default trim bit; with a
+        // PLL, all of them get REG_BG; otherwise the tiles of the DCMs used.
+        if self.cmt_used || !self.dcm_vregs.is_empty() {
+            for b in self.all_bels("CMT_VREG") {
+                let tcrd = self.edev.bel_tile(b);
+                if self.int.tile_classes[self.edev[tcrd].class].name == "CMT_DCM" {
+                    self.set_raw_num(b, "REG_BG", 0);
+                }
+            }
+        }
+        for b in std::mem::take(&mut self.dcm_vregs) {
+            self.set_raw_num(b, "REG_BG", 0b101_0010_0000);
+        }
         if self.cmt_used {
             for b in self.all_bels("CMT_VREG") {
                 let tcrd = self.edev.bel_tile(b);
