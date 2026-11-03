@@ -126,6 +126,11 @@ fn main() {
             };
             let mut g = config::Gen::new(&edev, &db.int, idcode);
             g.defaults();
+            if dev.disabled.contains(&prjcombine_spartan6::chip::DisabledPart::Gtp) {
+                let mut with_gtp = dev.disabled.clone();
+                with_gtp.remove(&prjcombine_spartan6::chip::DisabledPart::Gtp);
+                g.disabled_gtp_masks(&db.chips[dev.chip].expand_grid(&db.int, &with_gtp));
+            }
             let mut errors = vec![];
             for c in &cells {
                 if let Err(e) = g.cell_config(c, &nets) {

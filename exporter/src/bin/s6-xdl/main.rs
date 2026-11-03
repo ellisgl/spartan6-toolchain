@@ -1236,6 +1236,8 @@ fn main() {
             let mut parent: HashMap<WireCoord, WireCoord> = HashMap::new();
             let mut reached: HashSet<WireCoord> = HashSet::new();
             let mut sources: HashSet<WireCoord> = HashSet::new();
+            // Site input pins a slice mux reads (where the route enters the site).
+            let mut consumed: HashSet<WireCoord> = HashSet::new();
             let mut has_site_pips = false;
             let mut has_int_pips = false;
 
@@ -1280,6 +1282,7 @@ fn main() {
                         // A slice mux reading a site input pin (e.g. AX -> AFF_D) consumes it.
                         if let Some(w) = parse_wire_name(&edev, names.cell(*x, *y), src) {
                             reached.insert(canon(w));
+                            consumed.insert(canon(w));
                         }
                         if let Some(w) = parse_wire_name(&edev, names.cell(*x, *y), dst) {
                             // A slice mux driving a site output pin (e.g. A5Q -> AMUX).
@@ -1382,11 +1385,16 @@ fn main() {
                 let matched = match cand {
                     Cand::Site { bcrd, pins, inst, output } => {
                         let mut any = false;
+                        let wire = |pin: &String| canon(names.site_pin_wire(*bcrd, pin).unwrap_or_else(|| panic!("no wire for pin {pin}")));
+                        // An input with alternative pins (DI1: its own X or DX):
+                        // the route may pass through one pin's wire on the way to
+                        // the other; the pin is the one a slice mux reads.
+                        let entered = !*output && pins.len() > 1 && pins.iter().any(|p| consumed.contains(&wire(p)));
                         for pin in pins {
-                            let Some(w) = names.site_pin_wire(*bcrd, pin) else { panic!("no wire for pin {pin}") };
+                            let w = names.site_pin_wire(*bcrd, pin).unwrap();
                             let c = canon(w);
                             let hit = if *output { sources.contains(&c) } else { reached.contains(&c) };
-                            if !hit {
+                            if !hit || (entered && !consumed.contains(&c)) {
                                 continue;
                             }
                             any = true;

@@ -231,7 +231,7 @@ impl RawGraph {
                 edges.iter().map(|e| e.0).chain(sink_nodes).filter(|n| !reached.contains(n)).collect();
             let missing = unreached.iter().find(|n| !driven.contains(n)).or(unreached.first()).copied();
             let Some(goal) = missing else { return Ok(added) };
-            let path = self.bfs_from_set(&reached, goal, 6).ok_or_else(|| {
+            let path = self.bfs_from_set(&reached, goal, 12).ok_or_else(|| {
                 let names: Vec<String> = self
                     .members(goal)
                     .into_iter()

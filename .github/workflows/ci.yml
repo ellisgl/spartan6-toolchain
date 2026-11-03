@@ -1,4 +1,4 @@
-# Build everything and place, route and bitgen every test design. No ISE here,
+# Build everything and place, route and bitgen the test designs. No ISE here,
 # so no byte-for-byte cross-check: that stays `make ise-check` on a machine
 # with ISE.
 name: CI
@@ -59,6 +59,9 @@ jobs:
           for d in tests/*/; do
             t=$(basename "$d")
             [ "$t" = common ] && continue
+            # DSP characterization designs only feed `make timing-data`: one
+            # of each kind is enough here.
+            case "$t" in dsp_char0|dsp_casc_char0) ;; dsp_char*|dsp_casc_char*) continue ;; esac
             if make bit TEST="$t" > "build/$t.log" 2>&1; then
               echo "$t: ok ($(grep -o "Max frequency for clock.*" build/$t/nextpnr.log | tail -1))"
             else

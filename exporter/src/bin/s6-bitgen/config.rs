@@ -959,6 +959,29 @@ impl<'a> Gen<'a> {
         Ok(())
     }
 
+    /// LX parts share their die with the LXT, with the GTPs disabled, and
+    /// prjcombine leaves the GTP columns' HCLK_GTP tiles out. ISE still masks
+    /// their frames: every GLUTMASK_HCLK attribute of those tiles is set.
+    /// `full` is the same chip expanded with the GTPs enabled (same frame
+    /// layout).
+    pub fn disabled_gtp_masks(&mut self, full: &ExpandedDevice) {
+        let slot = self.slot("GLUTMASK_HCLK");
+        for (tcrd, tile) in full.tiles() {
+            let tcls = &self.int.tile_classes[tile.class];
+            if tcls.name != "HCLK_GTP" {
+                continue;
+            }
+            let BelInfo::Bel(bel) = &tcls.bels[slot] else { continue };
+            let rects = full.tile_bits(tcrd);
+            for attr in bel.attributes.values() {
+                let BelAttribute::BitVec(bits) = attr else { continue };
+                for b in bits {
+                    self.set_pos(rects[b.bit.rect].xlat_pos_fwd((b.bit.frame, b.bit.bit)), !b.inv);
+                }
+            }
+        }
+    }
+
     /// Settings that depend on the design as a whole.
     pub fn global(&mut self, cells: &[NCell]) {
         // RAM/SRL LUTs change at run time: ISE masks the LUT frames of their

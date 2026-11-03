@@ -68,8 +68,12 @@ make ise-check DEVICE=xc6slx16 PACKAGE=ftg256 TEST=blinky     # needs ISE
 
 Pins come from `tests/<name>/pins-<package>.ucf` if there is one; otherwise
 nextpnr picks them (a clock input goes on a clock-capable pin). The xc6slx4,
-xc6slx16, xc6slx25, xc6slx25t and xc6slx45 export and pass `make check`;
-blinky on the xc6slx16 (FTG256) is byte-identical to ISE. Nothing but the
+xc6slx16, xc6slx25, xc6slx25t and xc6slx45 export and pass `make check`, and
+19 of the test designs (logic, carry, block RAM, LUT RAM and SRLs, DSPs with
+cascades and the pre-adder, DCM, PLL, tristate) are byte-identical to ISE on
+each. The LX parts share their die with the LXT, GTPs disabled; ISE still
+sets the GLUTMASK bits of the GTP columns' HCLK tiles, which prjcombine
+leaves out, so s6-bitgen sets them from the LXT layout. Nothing but the
 xc6slx9 has been on hardware, and timing everywhere is the xc6slx9-2 model.
 GTP transceivers, PCIe and the memory controller (MCB) aren't supported.
 
