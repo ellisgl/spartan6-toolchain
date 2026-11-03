@@ -99,7 +99,27 @@ void Spartan6Impl::pack()
 
 bool Spartan6Impl::checkPipAvail(PipId pip) const
 {
-    if (!(chip_pip_info(ctx->chip_info, pip).flags & 1))
+    uint32_t flags = chip_pip_info(ctx->chip_info, pip).flags;
+    if (flags & 4) {
+        // Through an unused ILOGIC (clock -> CFB0): not when its pad is an
+        // input (the ILOGIC carries the input then).
+        WireId dst = ctx->getPipDstWire(pip);
+        for (auto bp : ctx->getWireBelPins(dst)) {
+            IdStringList name = ctx->getBelName(bp.bel);
+            std::string bel = name[1].str(ctx);
+            if (bel.rfind("ILOGIC", 0) != 0)
+                continue;
+            BelId iob = ctx->getBelByName(IdStringList::concat(name[0], ctx->id("IOB" + bel.substr(6))));
+            const CellInfo *io = iob == BelId() ? nullptr : ctx->getBoundBelCell(iob);
+            if (io && io->params.count(ctx->id("IO_TYPE"))) {
+                const std::string &t = io->params.at(ctx->id("IO_TYPE")).as_string();
+                if (t == "IBUF" || t == "IBUFG" || t == "IOBUF")
+                    return false; // the pad's input uses this ILOGIC
+            }
+        }
+        return true;
+    }
+    if (!(flags & 1))
         return true;
     WireId dst = ctx->getPipDstWire(pip);
     for (auto bp : ctx->getWireBelPins(dst)) {

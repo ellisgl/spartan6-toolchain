@@ -131,8 +131,10 @@ void Spartan6Impl::pack_cmt()
             }
             // Compensation: with CLKFBOUT wired straight to CLKFBIN there is
             // nothing to compensate, and ISE's map switches the PLL to
-            // INTERNAL; do the same. Feedback through a BUFG would need ISE's
-            // route through an ILOGIC site to a BUFIO2FB, which isn't modelled.
+            // INTERNAL; do the same. With feedback through a BUFG, insert a
+            // BUFIO2FB in front of CLKFBIN, as ISE's map does (the BUFG's
+            // output reaches it through an unused ILOGIC's clock-to-CFB0
+            // route-through).
             std::string comp = ci->params.count(ctx->id("COMPENSATION"))
                                        ? ci->params.at(ctx->id("COMPENSATION")).as_string()
                                        : std::string("SYSTEM_SYNCHRONOUS");
@@ -142,9 +144,19 @@ void Spartan6Impl::pack_cmt()
                     log_info("PLL %s: COMPENSATION = %s with direct feedback becomes INTERNAL (as ISE's map does)\n",
                              ctx->nameOf(ci), comp.c_str());
                     ci->params[ctx->id("COMPENSATION")] = std::string("INTERNAL");
+                } else if (comp != "SYSTEM_SYNCHRONOUS" && comp != "SOURCE_SYNCHRONOUS") {
+                    log_error("PLL %s: COMPENSATION = %s is not supported yet\n", ctx->nameOf(ci), comp.c_str());
+                } else if (fb && fb->driver.cell && fb->driver.cell->type == id_BUFG) {
+                    CellInfo *f = ctx->createCell(ctx->idf("%s$bufio2fb", ci->name.c_str(ctx)), id_BUFIO2FB);
+                    f->addInput(id_I);
+                    f->addOutput(id_O);
+                    f->connectPort(id_I, fb);
+                    NetInfo *fo = ctx->createNet(ctx->idf("%s$bufio2fb_out", ci->name.c_str(ctx)));
+                    f->connectPort(id_O, fo);
+                    ci->disconnectPort(ctx->id("CLKFBIN"));
+                    ci->connectPort(ctx->id("CLKFBIN"), fo);
                 } else {
-                    log_error("PLL %s: COMPENSATION = %s with feedback through a BUFG is not supported yet "
-                              "(wire CLKFBOUT straight to CLKFBIN, or use COMPENSATION = \"INTERNAL\")\n",
+                    log_error("PLL %s: COMPENSATION = %s needs CLKFBIN from CLKFBOUT, directly or through a BUFG\n",
                               ctx->nameOf(ci), comp.c_str());
                 }
             }
@@ -184,6 +196,37 @@ void Spartan6Impl::pack_cmt()
         log_info("Packed %d DCMs and %d PLLs.\n", dcms, plls);
 }
 
+// Whether a BUFIO2FB at `bel` reaches the CLKFBIN of the (placed) PLL its
+// output feeds.
+bool Spartan6Impl::bufio2fb_reaches_pll(CellInfo *fb, BelId bel)
+{
+    NetInfo *o = fb->getPort(id_O);
+    if (!o)
+        return true;
+    for (auto &u : o->users) {
+        if (u.cell->type != id_PLL || !u.cell->attrs.count(id_BEL))
+            continue;
+        BelId pll = ctx->getBelByNameStr(u.cell->attrs.at(id_BEL).as_string());
+        WireId target = ctx->getBelPinWire(pll, u.port);
+        pool<WireId> seen{ctx->getBelPinWire(bel, id_O)};
+        std::vector<WireId> frontier{ctx->getBelPinWire(bel, id_O)};
+        for (int d = 1; d <= 8 && !frontier.empty(); d++) {
+            std::vector<WireId> next;
+            for (WireId w : frontier)
+                for (PipId pip : ctx->getPipsDownhill(w)) {
+                    WireId dst = ctx->getPipDstWire(pip);
+                    if (dst == target)
+                        return true;
+                    if (seen.insert(dst).second)
+                        next.push_back(dst);
+                }
+            frontier = std::move(next);
+        }
+        return false;
+    }
+    return true;
+}
+
 // Breadth-first distances over the routing graph from `src`, up to `depth`.
 static dict<WireId, int> wire_distances(Context *ctx, WireId src, int depth)
 {
@@ -209,7 +252,12 @@ static dict<WireId, int> wire_distances(Context *ctx, WireId src, int depth)
 // then, recursively, the BUFGs a newly placed DCM/PLL drives.
 void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string &from)
 {
-    auto dist = wire_distances(ctx, src, 10);
+    // A BUFIO2FB is reached from a BUFG through the clock network, an I/O
+    // clock and an ILOGIC route-through: a longer search.
+    bool to_fb = false;
+    for (auto &usr : net->users)
+        to_fb |= usr.cell->type == id_BUFIO2FB;
+    auto dist = wire_distances(ctx, src, to_fb ? 24 : 10);
     std::vector<CellInfo *> placed_cmts, bufgs_to_cmt;
     for (auto &usr : net->users) {
         CellInfo *c = usr.cell;
@@ -222,6 +270,8 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
             pins = {id_CLKIN};
         else if (c->type == id_BUFIO2 && usr.port == id_I)
             pins = {id_I};
+        else if (c->type == id_BUFIO2FB && usr.port == id_I)
+            pins = {id_I};
         else if (c->type == id_PLL && usr.port.in(id_CLKIN1, id_CLKIN2))
             pins = net->driver.cell && net->driver.cell->type == id_BUFIO2 ? std::vector<IdString>{id_CLKIN1, id_CLKIN2}
                                                                            : std::vector<IdString>{usr.port};
@@ -232,6 +282,9 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         int best_dist = 1000;
         for (BelId bel : ctx->getBels()) {
             if (ctx->getBelType(bel) != c->type || used_clock_bels.count(bel))
+                continue;
+            // A BUFIO2FB must also reach its (already placed) PLL's CLKFBIN.
+            if (c->type == id_BUFIO2FB && !bufio2fb_reaches_pll(c, bel))
                 continue;
             for (IdString pin : pins) {
                 auto it = dist.find(ctx->getBelPinWire(bel, pin));
@@ -267,7 +320,7 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
             bool feeds_cmt = false;
             if (o)
                 for (auto &u : o->users)
-                    feeds_cmt |= u.cell->type.in(id_DCM, id_PLL);
+                    feeds_cmt |= u.cell->type.in(id_DCM, id_PLL, id_BUFIO2FB);
             if (feeds_cmt)
                 bufgs_to_cmt.push_back(c);
         }

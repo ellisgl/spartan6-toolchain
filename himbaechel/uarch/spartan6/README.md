@@ -15,10 +15,11 @@ Spartan-6 database.
   SRL16E, I/O (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25,
   PULLUP/PULLDOWN, DRIVE, SLEW), BUFG and the global clock network, DCM_SP
   (CLKFX/CLKFX180, and the DLL outputs with CLK_FEEDBACK = 1X) and
-  PLL_BASE/PLL_ADV (INTERNAL, or SYSTEM/SOURCE_SYNCHRONOUS with direct
-  feedback, which becomes INTERNAL as in ISE's map).
+  PLL_BASE/PLL_ADV (INTERNAL; SYSTEM/SOURCE_SYNCHRONOUS with direct
+  feedback, which becomes INTERNAL as in ISE's map, or feedback through a
+  BUFG, which gets a BUFIO2FB reached through an unused ILOGIC).
 - **Not yet:** DSP cascades, SRLs using both Q and Q31, RAM32X1S/D, DCM 2X
-  feedback and phase shifting, PLL feedback through a BUFG. Global clock
+  feedback and phase shifting. Global clock
   nets stay on the clock network (pip flag 2). Timing comes from a delay model
   fitted to ISE's timing output (see the
   [xc6slx9-pnr](https://github.com/ellisgl/xc6slx9-pnr) README), within
