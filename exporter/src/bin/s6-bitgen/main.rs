@@ -75,6 +75,12 @@ fn main() {
     match args.command {
         Command::Table { table, row } => {
             let t = db.int.tables.values().find(|t| t.name == table).expect("no such table");
+            if row == "list" {
+                for (_, r) in &t.rows {
+                    println!("{}", r.name);
+                }
+                return;
+            }
             let (_, r) = t.rows.iter().find(|(_, r)| r.name == row).expect("no such row");
             for (fid, f) in &t.fields {
                 if let Some(prjcombine_interconnect::db::TableValue::BitVec(bv)) = r.fields.get(fid) {

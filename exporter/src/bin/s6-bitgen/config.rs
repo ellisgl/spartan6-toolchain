@@ -446,9 +446,12 @@ impl<'a> Gen<'a> {
                 let std = c.params.get("IOSTANDARD").map(String::as_str).unwrap_or("LVCMOS25");
                 let input = matches!(io_type, "IBUF" | "IBUFG" | "IOBUF");
                 let output = matches!(io_type, "OBUF" | "OBUFT" | "IOBUF");
-                if !matches!(std, "LVTTL" | "LVCMOS33" | "LVCMOS25") {
+                if !matches!(std, "LVTTL" | "LVCMOS33" | "LVCMOS25" | "LVCMOS18" | "LVCMOS15" | "LVCMOS12") {
                     return Err(format!("{}: IOSTANDARD {std} not supported yet", c.name));
                 }
+                // Bank voltage under 2.5 V (as prjcombine's rules: inputs on
+                // VCCINT thresholds, outputs in low-voltage mode).
+                let low_v = matches!(std, "LVCMOS18" | "LVCMOS15" | "LVCMOS12");
                 if output {
                     let drive = c.params.get("DRIVE").map(String::as_str).unwrap_or("12");
                     let row = format!("{std}_{drive}");
@@ -467,6 +470,9 @@ impl<'a> Gen<'a> {
                     self.set_bitvec(bcrd, "PSLEW", &ps);
                     self.set_bitvec(bcrd, "NSLEW", &ns);
                     self.set_bits(bcrd, "OUTPUT_ENABLE", &[true]);
+                    if low_v {
+                        self.set_bits(bcrd, "OUTPUT_LOW_VOLTAGE", &[true]);
+                    }
                     self.set_enum(bcrd, "SUSPEND", "_3STATE");
                     // OLOGIC passes D1 straight to the pad.
                     let ologic = cell.bel(self.slot(&format!("OLOGIC[{n}]")));
@@ -489,7 +495,7 @@ impl<'a> Gen<'a> {
                     self.set_bitvec(bcrd, "NDRIVE", &nd);
                 }
                 if input {
-                    self.set_enum(bcrd, "IBUF_MODE", "CMOS_VCCAUX");
+                    self.set_enum(bcrd, "IBUF_MODE", if low_v { "CMOS_VCCINT" } else { "CMOS_VCCAUX" });
                     if c.conns.get("I").is_some_and(|&ni| !nets[ni].users.is_empty()) {
                         // Data input through ILOGIC (pass-through to FABRICOUT);
                         // ISE leaves it off for an input nothing reads.

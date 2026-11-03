@@ -243,8 +243,12 @@ Commands:
   every differing bit with its meaning.
 - **`s6-bitgen bits`:** lists a bitstream's set bits.
 
-Supported: everything the packer supports (see the uarch section). Only LVTTL
-has been verified against ISE among the I/O standards. Details worth knowing:
+Supported: everything the packer supports (see the uarch section). I/O
+standards: LVTTL, LVCMOS33/25 and LVCMOS18/15/12, all verified against ISE
+(the low-voltage ones set OUTPUT_LOW_VOLTAGE and use VCCINT input
+thresholds; `tests/iostd*`, bits only, since the Mojo's banks are 3.3 V).
+ISE's DRC limits their drive strength in bank 0 (LVCMOS18 16 mA, LVCMOS15
+8 mA, LVCMOS12 6 mA). Details worth knowing:
 
 - **BRAM:** ISE's layout of RAMB16 contents (and its swizzle when a port is
   36 bits wide); a tile used as RAMB8s is loaded combined and split by a
