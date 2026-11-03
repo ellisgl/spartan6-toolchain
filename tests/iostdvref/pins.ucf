@@ -1,0 +1,10 @@
+# One VREF standard per bank (VREF pins: P120/P143 bank 0, P104 bank 1,
+# P47 bank 2, P1/P34 bank 3; left free for ISE).
+NET "i<0>" LOC = P140 | IOSTANDARD = HSTL_I;
+NET "o<0>" LOC = P134 | IOSTANDARD = HSTL_I;
+NET "i<1>" LOC = P97  | IOSTANDARD = SSTL3_I;
+NET "o<1>" LOC = P99  | IOSTANDARD = SSTL3_I;
+NET "i<2>" LOC = P50  | IOSTANDARD = SSTL18_I;
+NET "o<2>" LOC = P51  | IOSTANDARD = SSTL18_I;
+NET "i<3>" LOC = P12  | IOSTANDARD = HSTL_III_18;
+NET "o<3>" LOC = P8   | IOSTANDARD = HSTL_III_18;

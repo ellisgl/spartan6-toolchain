@@ -1,0 +1,6 @@
+# Class II VREF standards in banks 1 and 3 (VREF pins P104, P1/P34 left
+# free for ISE).
+NET "i<0>" LOC = P97  | IOSTANDARD = HSTL_II;
+NET "o<0>" LOC = P99  | IOSTANDARD = HSTL_II;
+NET "i<1>" LOC = P12  | IOSTANDARD = SSTL18_II;
+NET "o<1>" LOC = P8   | IOSTANDARD = SSTL18_II;

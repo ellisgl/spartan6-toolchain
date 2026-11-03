@@ -442,6 +442,7 @@ fn main() {
 
     let mut instances: Vec<Instance> = vec![];
     // OLOGIC (ODDR2) cells and their pads: (ologic bel, inst, iob bel, iob inst).
+    let mut diff_links: Vec<DiffLink> = vec![];
     // (OLOGIC, instance, its IOB, pad name, tristate register used)
     let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String, bool)> = vec![];
     // ILOGIC (IDDR2) cells and their pads: (ilogic bel, inst, iob bel, iob inst).
@@ -745,6 +746,32 @@ fn main() {
                 let mut cfg: Vec<Vec<String>> = vec![vec!["PAD".into(), inst.clone(), "".into()]];
                 let input = matches!(io_type, "IBUF" | "IBUFG" | "IOBUF");
                 let output = matches!(io_type, "OBUF" | "OBUFT" | "IOBUF");
+                // Differential pair (IBUFDS / OBUFDS): the slave (N pad) only
+                // links to its master inside the I/O tile (net added below).
+                let diff = c.params.get("DIFF").map(String::as_str);
+                if diff == Some("SLAVE") {
+                    let kv = |k: &str, v: &str| vec![k.to_string(), "".into(), v.to_string()];
+                    if output {
+                        cfg.push(kv("DIFFO_INUSED", "0"));
+                        cfg.push(kv("OUTMUX", "1"));
+                    } else {
+                        cfg.push(kv("PADOUTUSED", "0"));
+                    }
+                    let master = names.bel(x, y, "IOB[1]");
+                    let master_site = pad_pin.get(&master).expect("differential master not bonded").clone();
+                    diff_links.push(DiffLink {
+                        slave: (site.clone(), names.site(bcrd).1),
+                        master: (master_site, names.site(master).1),
+                        output,
+                    });
+                    instances.push(Instance {
+                        name: inst,
+                        kind: if output { "IOBS" } else { "IOB" }.into(),
+                        placement: Placement::Placed { tile, site: site.clone() },
+                        cfg,
+                    });
+                    continue;
+                }
                 if let Some(pull) = c.pull() {
                     cfg.push(vec!["PULLTYPE".into(), "".into(), pull.into()]);
                 }
@@ -753,6 +780,11 @@ fn main() {
                     cfg.push(vec!["IMUX".into(), format!("{inst}.IMUX"), "I".into()]);
                     cfg.push(vec!["INBUF".into(), format!("{inst}_IBUF"), "".into()]);
                     cfg.push(vec!["ISTANDARD".into(), "".into(), std.clone()]);
+                    if diff == Some("MASTER") {
+                        let term = c.params.get("DIFF_TERM").map(|v| v.trim_matches('"').to_string()).unwrap_or("FALSE".into());
+                        cfg.push(vec!["DIFFI_INUSED".into(), "".into(), "0".into()]);
+                        cfg.push(vec!["DIFF_TERM".into(), "".into(), term]);
+                    }
                     if c.conns.contains_key("I") {
                         pins.insert((ci, "I".into()), (inst.clone(), "I".into()));
                         cands.insert((ci, "I".into()), Cand::IobIn { iob: bcrd, ilogic, inst: inst.clone() });
@@ -766,10 +798,17 @@ fn main() {
                     cfg.push(vec!["OUSED".into(), "".into(), "0".into()]);
                     cfg.push(vec!["OUTBUF".into(), format!("{inst}_OBUF"), "".into()]);
                     cfg.push(vec!["OSTANDARD".into(), "".into(), std.clone()]);
-                    let drive = c.params.get("DRIVE").cloned().unwrap_or_else(|| "12".into());
-                    let slew = c.params.get("SLEW").cloned().unwrap_or_else(|| "SLOW".into());
-                    cfg.push(vec!["DRIVEATTRBOX".into(), "".into(), drive]);
-                    cfg.push(vec!["SLEW".into(), "".into(), slew]);
+                    if diff == Some("MASTER") {
+                        // No drive strength or slew for a differential output.
+                        cfg.push(vec!["DIFFO_OUTUSED".into(), "".into(), "0".into()]);
+                    } else if std.starts_with("SSTL") || std.starts_with("HSTL") {
+                        // Nor for the VREF standards (fixed by the standard).
+                    } else {
+                        let drive = c.params.get("DRIVE").cloned().unwrap_or_else(|| "12".into());
+                        let slew = c.params.get("SLEW").cloned().unwrap_or_else(|| "SLOW".into());
+                        cfg.push(vec!["DRIVEATTRBOX".into(), "".into(), drive]);
+                        cfg.push(vec!["SLEW".into(), "".into(), slew]);
+                    }
                     cfg.push(vec!["SUSPEND".into(), "".into(), "3STATE".into()]);
                     pins.insert((ci, "O".into()), (inst.clone(), "O".into()));
                     cands.insert(
@@ -791,7 +830,7 @@ fn main() {
                 }
                 instances.push(Instance {
                     name: inst,
-                    kind: "IOB".into(),
+                    kind: if diff == Some("MASTER") && output { "IOBM" } else { "IOB" }.into(),
                     placement: Placement::Placed { tile, site: site.clone() },
                     cfg,
                 });
@@ -1769,6 +1808,30 @@ fn main() {
                 });
             }
         }
+        // Differential pairs, inside the I/O tile: OBUFDS master DIFFO_OUT ->
+        // slave DIFFO_IN, IBUFDS slave PADOUT -> master DIFFI_IN.
+        for l in &diff_links {
+            let (from, to) =
+                if l.output { ((&l.master, "DIFFO_OUT"), (&l.slave, "DIFFO_IN")) } else { ((&l.slave, "PADOUT"), (&l.master, "DIFFI_IN")) };
+            let wire = |(site, pin): (&(String, String), &str)| {
+                raw.site_pin_wire(&site.1, pin).unwrap_or_else(|| panic!("{}: no ISE pin {pin}", site.0))
+            };
+            let (a, b) = (wire(from), wire(to));
+            let hop = raw
+                .find_path((&a.0, &a.1), (&b.0, &b.1), 2)
+                .unwrap_or_else(|| panic!("no ISE path from {}.{} to {}.{}", from.0.0, from.1, to.0.0, to.1));
+            xnets.push(Net {
+                name: format!("{}_{}", from.0.0, from.1),
+                typ: NetType::Plain,
+                outpins: vec![NetPin { inst_name: inst_of_site(&instances, &from.0.0), pin: from.1.into() }],
+                inpins: vec![NetPin { inst_name: inst_of_site(&instances, &to.0.0), pin: to.1.into() }],
+                pips: hop
+                    .into_iter()
+                    .map(|(tile, wire_from, wire_to)| NetPip { tile, wire_from, wire_to, dir: PipDirection::UniBuf })
+                    .collect(),
+                cfg: vec![],
+            });
+        }
         eprintln!("added {repaired} ISE pip(s) prjcombine models as plain wires (buffers, terminations)");
         for (what, count) in &unnamed {
             eprintln!("warning: {count} pip(s) with no ISE name: {what}");
@@ -2062,6 +2125,26 @@ fn clk_inv(c: &s6_export::nextpnr::NCell) -> bool {
 
 /// I/O tile clock wiring in front of the ILOGIC that prjcombine doesn't name
 /// in ISE terms (the ILOGIC route-through supplies ISE's own path).
+/// A differential pair's link inside the I/O tile. Sites as (XDL name = the
+/// package pin, rawdump name).
+struct DiffLink {
+    slave: (String, String),
+    master: (String, String),
+    /// OBUFDS (master DIFFO_OUT -> slave DIFFO_IN); else IBUFDS (slave PADOUT
+    /// -> master DIFFI_IN).
+    output: bool,
+}
+
+/// The instance placed on an ISE site.
+fn inst_of_site(instances: &[Instance], site: &str) -> String {
+    instances
+        .iter()
+        .find(|i| matches!(&i.placement, Placement::Placed { site: s, .. } if s == site))
+        .unwrap_or_else(|| panic!("no instance on site {site}"))
+        .name
+        .clone()
+}
+
 fn ise_unnamed_ioi_clock(wire: &str) -> bool {
     let w = wire.rsplit('.').next().unwrap_or(wire);
     w.starts_with("IOI_IOCLK[") || w.starts_with("IOI_ICLK[") || w.starts_with("IMUX_ILOGIC_CLK[")

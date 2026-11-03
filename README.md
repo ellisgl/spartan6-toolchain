@@ -113,6 +113,7 @@ talks to the Mojo over its USB serial port):
 | `oddrt` | `tools/oddrt-test.py` | tristated DDR outputs: ODDR2 data with an ODDR2 on T, 64 driven/released checks |
 | `oddr2clk` | `tools/oddr-test.py` | as `oddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
 | `iddr2clk` | `tools/iddr-test.py` | as `iddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
+| `lvds` | `tools/lvds-test.py` | LVDS_33 OBUFDS -> IBUFDS with DIFF_TERM, looped back by jumpers P41 -> P6, P40 -> P5 |
 | `psvar` | `tools/psvar-test.py` | DCM variable phase shift (PSEN / PSINCDEC / PSDONE), 1600 steps |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
@@ -284,7 +285,34 @@ standards: LVTTL, LVCMOS33/25 and LVCMOS18/15/12, all verified against ISE
 (the low-voltage ones set OUTPUT_LOW_VOLTAGE and use VCCINT input
 thresholds; `tests/iostd*`, bits only, since the Mojo's banks are 3.3 V).
 ISE's DRC limits their drive strength in bank 0 (LVCMOS18 16 mA, LVCMOS15
-8 mA, LVCMOS12 6 mA). Details worth knowing:
+8 mA, LVCMOS12 6 mA). Differential: LVDS_33 (IBUFDS, OBUFDS) and LVDS_25
+inputs, also verified against ISE, and the pad and bank bits against
+ISE's own build of the same design (`tests/lvds`, also on the board).
+VREF standards: HSTL_I/II/III, HSTL_I/II/III_18, SSTL15_II, SSTL18_I/II,
+SSTL2_I/II and SSTL3_I/II (`tests/iostdsstl`, `tests/iostdvref*`, bits
+only). Details worth knowing:
+
+- **VREF standards:** each standard's own IOB_DATA row (drive and slew;
+  no DRIVE/SLEW choice, and no DRIVEATTRBOX/SLEW in XDL), inputs in
+  IBUF_MODE = VREF, outputs under 2.5 V in low-voltage mode. Inputs on a high
+  reference (SSTL2, SSTL3) set VREF_HV; any input on a low one sets the
+  chip-wide MISC_NW.VREF_LV. Every VREF pin of a bank with a VREF input
+  (from prjcombine's bond, so s6-bitgen takes `--package`) gets VREF with
+  its single-ended driver off; leave those pins free (ISE requires it).
+  Class II outputs only in banks 1 and 3 (ISE's DRC).
+- **Differential pairs:** the P pin is the pair's master (IOB[1]); it is an
+  ordinary input or output to the fabric. The N pin is a slave linked
+  inside the I/O tile (IBUFDS: slave PADOUT -> master DIFFI_IN; OBUFDS:
+  master DIFFO_OUT -> slave DIFFO_IN; one ISE pip each, from ISE's own site
+  pins). Both pins switch the single-ended driver off (IOB_DATA OFF; some of
+  those bits are stored inverted, so it must be written) and inputs use
+  IBUF_MODE = DIFF; the output master sets DIFF_MODE = LVDS and
+  DIFF_OUTPUT_ENABLE, and its bank the LVDSBIAS table value (group 0).
+  DIFF_TERM (internal 100 ohm, needed unless the board terminates the
+  pair): the slave's DIFF_TERM bit, the master in LVDS mode, and both pins'
+  slew written off.
+  LVDS outputs only exist in banks 0 and 2 (ISE's rule). Both pins need a
+  LOC.
 
 - **BRAM:** ISE's layout of RAMB16 contents (and its swizzle when a port is
   36 bits wide); a tile used as RAMB8s is loaded combined and split by a

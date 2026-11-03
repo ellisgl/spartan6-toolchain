@@ -446,15 +446,21 @@ impl<'a> Gen<'a> {
                 let std = c.params.get("IOSTANDARD").map(String::as_str).unwrap_or("LVCMOS25");
                 let input = matches!(io_type, "IBUF" | "IBUFG" | "IOBUF");
                 let output = matches!(io_type, "OBUF" | "OBUFT" | "IOBUF");
-                if !matches!(std, "LVTTL" | "LVCMOS33" | "LVCMOS25" | "LVCMOS18" | "LVCMOS15" | "LVCMOS12") {
+                if let Some(role) = c.params.get("DIFF") {
+                    return self.diff_iob(c, cell, bcrd, role, std, input, output, nets);
+                }
+                // Standards with an input reference voltage (the bank's VREF
+                // pins): their own drive row, no drive strength or slew choice.
+                let vref = vref_standard(std);
+                if !vref && !matches!(std, "LVTTL" | "LVCMOS33" | "LVCMOS25" | "LVCMOS18" | "LVCMOS15" | "LVCMOS12") {
                     return Err(format!("{}: IOSTANDARD {std} not supported yet", c.name));
                 }
                 // Bank voltage under 2.5 V (as prjcombine's rules: inputs on
                 // VCCINT thresholds, outputs in low-voltage mode).
-                let low_v = matches!(std, "LVCMOS18" | "LVCMOS15" | "LVCMOS12");
+                let low_v = matches!(std, "LVCMOS18" | "LVCMOS15" | "LVCMOS12") || (vref && vref_vcco_low(std));
                 if output {
                     let drive = c.params.get("DRIVE").map(String::as_str).unwrap_or("12");
-                    let row = format!("{std}_{drive}");
+                    let row = if vref { std.to_string() } else { format!("{std}_{drive}") };
                     let pd = self.table("IOB_DATA", &row, "PDRIVE");
                     // The NDRIVE_2V5/NDRIVE_3V3 columns follow VCCAUX (bitgen
                     // default 2.5 V), not the I/O standard (matches ISE for LVTTL).
@@ -465,8 +471,9 @@ impl<'a> Gen<'a> {
                         "FAST" => "SLEW_FAST",
                         _ => "SLEW_SLOW",
                     };
-                    let ps = self.table("IOB_DATA", slew, "PSLEW");
-                    let ns = self.table("IOB_DATA", slew, "NSLEW");
+                    let slew_row = if vref { std } else { slew };
+                    let ps = self.table("IOB_DATA", slew_row, "PSLEW");
+                    let ns = self.table("IOB_DATA", slew_row, "NSLEW");
                     self.set_bitvec(bcrd, "PSLEW", &ps);
                     self.set_bitvec(bcrd, "NSLEW", &ns);
                     self.set_bits(bcrd, "OUTPUT_ENABLE", &[true]);
@@ -495,7 +502,17 @@ impl<'a> Gen<'a> {
                     self.set_bitvec(bcrd, "NDRIVE", &nd);
                 }
                 if input {
-                    self.set_enum(bcrd, "IBUF_MODE", if low_v { "CMOS_VCCINT" } else { "CMOS_VCCAUX" });
+                    let mode = if vref {
+                        "VREF"
+                    } else if low_v {
+                        "CMOS_VCCINT"
+                    } else {
+                        "CMOS_VCCAUX"
+                    };
+                    self.set_enum(bcrd, "IBUF_MODE", mode);
+                    if vref && vref_high(std) {
+                        self.set_bits(bcrd, "VREF_HV", &[true]);
+                    }
                     if c.conns.get("I").is_some_and(|&ni| !nets[ni].users.is_empty()) {
                         // Data input through ILOGIC (pass-through to FABRICOUT);
                         // ISE leaves it off for an input nothing reads.
@@ -565,6 +582,137 @@ impl<'a> Gen<'a> {
             other => return Err(format!("cell {}: type {other} not supported by the bitstream writer yet", c.name)),
         }
         Ok(())
+    }
+
+    /// The VREF pins (of the package, `pads`) of every bank with an input
+    /// in a VREF standard: as ISE sets them, VREF on, the single-ended
+    /// driver and slew off (written: some of those bits are stored
+    /// inverted).
+    pub fn vref_pins(&mut self, cells: &[NCell], pads: &[BelCoord]) {
+        let mut banks: HashSet<BelCoord> = HashSet::new();
+        let mut any_low = false;
+        for c in cells.iter().filter(|c| c.typ == "IOB") {
+            let std = c.params.get("IOSTANDARD").map(String::as_str).unwrap_or("");
+            let io_type = c.params.get("IO_TYPE").map(String::as_str).unwrap_or("IBUF");
+            if vref_standard(std) && matches!(io_type, "IBUF" | "IBUFG" | "IOBUF") {
+                let (x, y, ref bel) = c.bel;
+                banks.insert(self.bank_bel(self.cell(x, y).bel(self.slot(bel))));
+                any_low |= !vref_high(std);
+            }
+        }
+        // Any input on a low reference: the chip-wide VREF_LV (both bits).
+        if any_low {
+            for b in self.all_bels("MISC_NW") {
+                self.set_bits(b, "VREF_LV", &[true, true]);
+            }
+        }
+        for &pad in pads {
+            if !banks.contains(&self.bank_bel(pad)) {
+                continue;
+            }
+            self.set_bits(pad, "VREF", &[true]);
+            for (attr, field) in [("PDRIVE", "PDRIVE"), ("NDRIVE", "NDRIVE_3V3"), ("PSLEW", "PSLEW"), ("NSLEW", "NSLEW")] {
+                let v = self.table("IOB_DATA", "OFF", field);
+                self.set_bitvec(pad, attr, &v);
+            }
+        }
+    }
+
+    /// One pin of a differential pair (IBUFDS / OBUFDS; the P pad is the
+    /// master, IOB[1]).
+    #[allow(clippy::too_many_arguments)]
+    fn diff_iob(
+        &mut self, c: &NCell, cell: CellCoord, bcrd: BelCoord, role: &str, std: &str, input: bool, output: bool,
+        nets: &[NNet],
+    ) -> Result<(), String> {
+        if !matches!(std, "LVDS_33" | "LVDS_25") {
+            return Err(format!("{}: differential IOSTANDARD {std} not supported yet (LVDS_33, LVDS_25)", c.name));
+        }
+        let master = role == "MASTER";
+        let n = c.bel.2.trim_start_matches("IOB[").trim_end_matches(']').to_string();
+        // Both pins of a pair: the differential input buffer, and (below)
+        // the single-ended driver off.
+        let term = c.params.get("DIFF_TERM").is_some_and(|v| v.trim_matches('"') == "TRUE");
+        if input {
+            self.set_enum(bcrd, "IBUF_MODE", "DIFF");
+            // Internal 100 ohm termination (DIFF_TERM): as ISE sets it, the
+            // slave's DIFF_TERM bit, the master in LVDS mode, and both pins'
+            // slew written as OFF (bit 2 is stored inverted).
+            if term {
+                if master {
+                    self.set_enum(bcrd, "DIFF_MODE", "LVDS");
+                } else {
+                    self.set_bits(bcrd, "DIFF_TERM", &[true]);
+                }
+            }
+            if master && c.conns.get("I").is_some_and(|&ni| !nets[ni].users.is_empty()) {
+                let ilogic = cell.bel(self.slot(&format!("ILOGIC[{n}]")));
+                self.set_bits(ilogic, "ENABLE", &[true]);
+                self.set_bits(ilogic, "I_DELAY_ENABLE", &[false]);
+            }
+        }
+        if output {
+            if master {
+                self.set_enum(bcrd, "DIFF_MODE", "LVDS");
+                self.set_bits(bcrd, "DIFF_OUTPUT_ENABLE", &[true]);
+                self.set_bits(bcrd, "OUTPUT_ENABLE", &[true]);
+                let ologic = cell.bel(self.slot(&format!("OLOGIC[{n}]")));
+                self.set_bits(ologic, "ENABLE", &[true]);
+                self.set_bits(ologic, "FFO_RANK1_BYPASS", &[true]);
+                self.set_enum(ologic, "MUX_O", "D1");
+                // The bank's LVDS output bias: two 12-bit groups, the pad's
+                // LVDS_GROUP (0, as ISE assigns a single standard) picks one.
+                let bank = self.bank_bel(bcrd);
+                let bias = self.table("LVDSBIAS", std, "LVDSBIAS");
+                let v: Vec<bool> = (0..bias.len()).map(|i| bias[i]).collect();
+                self.set_bits_at(bank, "LVDSBIAS", 0, &v);
+            }
+        }
+        // The single-ended driver off on both pins (some of its bits are
+        // stored inverted, so this must be written); slew too on outputs.
+        let fields: &[(&str, &str)] = if output {
+            &[("PDRIVE", "PDRIVE"), ("NDRIVE", "NDRIVE_3V3"), ("PSLEW", "PSLEW"), ("NSLEW", "NSLEW")]
+        } else {
+            &[("PDRIVE", "PDRIVE"), ("NDRIVE", "NDRIVE_3V3")]
+        };
+        if input && term {
+            for attr in ["PSLEW", "NSLEW"] {
+                let v = self.table("IOB_DATA", "OFF", attr);
+                self.set_bitvec(bcrd, attr, &v);
+            }
+        }
+        for &(attr, field) in fields {
+            let v = self.table("IOB_DATA", "OFF", field);
+            self.set_bitvec(bcrd, attr, &v);
+        }
+        Ok(())
+    }
+
+    /// The BANK bel (in a corner tile) of an I/O pad's bank, as prjcombine's
+    /// Chip::get_io_bank and pad_bank_vcco.
+    fn bank_bel(&self, bcrd: BelCoord) -> BelCoord {
+        use prjcombine_interconnect::dir::{DirH, DirHV};
+        let chip = &self.edev.chip;
+        let (col, row) = (bcrd.cell.col, bcrd.cell.row);
+        let split = |d: DirH| chip.rows_bank_split.is_some_and(|s| row >= s[d]);
+        let bank = if col == chip.col_w() {
+            if split(DirH::W) { 4 } else { 3 }
+        } else if col == chip.col_e() {
+            if split(DirH::E) { 5 } else { 1 }
+        } else if row < chip.row_clk() {
+            2
+        } else {
+            0
+        };
+        let (corner, slot) = match bank {
+            0 => (DirHV::NW, "BANK_SN"),
+            1 => (DirHV::SE, "BANK_WE"),
+            2 => (DirHV::SW, "BANK_SN"),
+            3 => (DirHV::SW, "BANK_WE"),
+            4 => (DirHV::NW, "BANK_WE"),
+            _ => (DirHV::NE, "BANK_WE"),
+        };
+        chip.corner(corner).cell.bel(self.slot(slot))
     }
 
     /// Block RAM: one RAMB8 half, or a RAMB16 over both halves (the cell on
@@ -1098,4 +1246,25 @@ impl<'a> Gen<'a> {
 
 fn nets_uses(c: &NCell, port: &str) -> bool {
     c.conns.contains_key(port)
+}
+
+/// I/O standards whose inputs compare against the bank's VREF.
+fn vref_standard(std: &str) -> bool {
+    matches!(
+        std,
+        "HSTL_I" | "HSTL_II" | "HSTL_III" | "HSTL_I_18" | "HSTL_II_18" | "HSTL_III_18" | "SSTL15_II" | "SSTL18_I"
+            | "SSTL18_II" | "SSTL2_I" | "SSTL2_II" | "SSTL3_I" | "SSTL3_II"
+    )
+}
+
+/// VREF standards whose reference is "high" (VREF_HV on their inputs; the
+/// others set the chip-wide VREF_LV), as ISE sets it.
+fn vref_high(std: &str) -> bool {
+    matches!(std, "SSTL2_I" | "SSTL2_II" | "SSTL3_I" | "SSTL3_II")
+}
+
+/// VREF standards on a bank voltage under 2.5 V (outputs in low-voltage
+/// mode, as the LVCMOS18/15/12 ones).
+fn vref_vcco_low(std: &str) -> bool {
+    !matches!(std, "SSTL2_I" | "SSTL2_II" | "SSTL3_I" | "SSTL3_II")
 }

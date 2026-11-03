@@ -64,10 +64,42 @@ void Spartan6Impl::pack_io()
             port_attrs[port][k] = v;
 
     const pool<CellTypePort> top_ports{
-            CellTypePort(id_IBUF, id_I),  CellTypePort(id_IBUFG, id_I), CellTypePort(id_OBUF, id_O),
-            CellTypePort(id_OBUFT, id_O), CellTypePort(id_IOBUF, id_IO),
+            CellTypePort(id_IBUF, id_I),    CellTypePort(id_IBUFG, id_I),   CellTypePort(id_OBUF, id_O),
+            CellTypePort(id_OBUFT, id_O),   CellTypePort(id_IOBUF, id_IO),  CellTypePort(id_IBUFDS, id_I),
+            CellTypePort(id_IBUFDS, id_IB), CellTypePort(id_OBUFDS, id_O),  CellTypePort(id_OBUFDS, id_OB),
     };
     h.remove_nextpnr_iobs(top_ports);
+
+    // Differential buffers: the P pad (the pair's IOB[1]) does the work, as
+    // an IBUF / OBUF; the N pad (IOB[0]) is a slave with no fabric pins
+    // (IBUFDS: its PADOUT feeds the master's DIFFI_IN; OBUFDS: the master's
+    // DIFFO_OUT drives its DIFFO_IN; both inside the I/O tile).
+    std::vector<std::pair<CellInfo *, CellInfo *>> diff_pairs;
+    {
+        std::vector<CellInfo *> ds;
+        for (auto &cell : ctx->cells)
+            if (cell.second->type.in(id_IBUFDS, id_OBUFDS))
+                ds.push_back(cell.second.get());
+        for (CellInfo *ci : ds) {
+            bool in = ci->type == id_IBUFDS;
+            IdString n_port = in ? id_IB : id_OB;
+            NetInfo *n_net = ci->getPort(n_port);
+            if (!n_net)
+                log_error("%s %s: its N pin is not connected to a top-level port\n", ci->type.c_str(ctx), ctx->nameOf(ci));
+            CellInfo *slave = ctx->createCell(ctx->idf("%s$n", ci->name.c_str(ctx)), in ? id_IBUF : id_OBUF);
+            slave->addInput(in ? id_I : id_O); // the pad side, renamed below like any buffer
+            ci->disconnectPort(n_port);
+            ci->ports.erase(n_port);
+            slave->connectPort(in ? id_I : id_O, n_net);
+            for (auto &p : ci->params)
+                slave->params[p.first] = p.second;
+            ci->params[ctx->id("DIFF")] = std::string("MASTER");
+            slave->params[ctx->id("DIFF")] = std::string("SLAVE");
+            slave->params[ctx->id("DIFF_MASTER")] = ci->name.str(ctx);
+            ci->type = in ? id_IBUF : id_OBUF;
+            diff_pairs.emplace_back(ci, slave);
+        }
+    }
 
     int count = 0;
     for (auto &cell : ctx->cells) {
@@ -118,6 +150,20 @@ void Spartan6Impl::pack_io()
             log_warning("Port '%s' has no LOC constraint; the placer will pick a pin\n", port_name.c_str(ctx));
         }
         count++;
+    }
+    for (auto [m, sl] : diff_pairs) {
+        if (!m->attrs.count(id_BEL) || !sl->attrs.count(id_BEL))
+            log_error("Differential pair %s: both pins need a LOC\n", ctx->nameOf(m));
+        std::string mb = m->attrs.at(id_BEL).as_string(), sb = sl->attrs.at(id_BEL).as_string();
+        std::string mt = mb.substr(0, mb.find('/')), st = sb.substr(0, sb.find('/'));
+        if (mt != st || mb.substr(mb.find('/') + 1) != "IOB[1]" || sb.substr(sb.find('/') + 1) != "IOB[0]")
+            log_error("Differential pair %s: P and N must be the two pins of one pair, P on the pair's master "
+                      "(%s is %s, %s is %s)\n",
+                      ctx->nameOf(m), ctx->nameOf(m), mb.c_str(), ctx->nameOf(sl), sb.c_str());
+        // The slave's standard is the master's (the UCF may give it on either).
+        for (auto *c : {m, sl})
+            if (c->attrs.count(id_IOSTANDARD))
+                m->params[id_IOSTANDARD] = sl->params[id_IOSTANDARD] = c->attrs.at(id_IOSTANDARD);
     }
     log_info("Packed %d I/O buffers.\n", count);
 }

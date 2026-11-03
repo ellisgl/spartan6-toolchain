@@ -59,6 +59,9 @@ enum Command {
         /// Compare with this bitstream (e.g. ISE bitgen of the same design)
         #[arg(long)]
         compare: Option<PathBuf>,
+        /// Package (for its VREF pins)
+        #[arg(long, default_value = "tqg144")]
+        package: String,
     },
 }
 
@@ -115,7 +118,7 @@ fn main() {
             println!("set bits: {bits:?}");
             println!("{} main frames, {} bram frames, iob {} bits", bs.frame_info.len(), bs.bram_frame_info.len(), bs.iob.len());
         }
-        Command::Gen { routed, chipdb_json, out, compare } => {
+        Command::Gen { routed, chipdb_json, out, compare, package } => {
             let chipdb = s6_export::chipdb::ChipdbIndex::load(&chipdb_json);
             let (cells, nets) = s6_export::nextpnr::load_routed(&routed);
             let idcode = match dev.data.get(prjcombine_spartan6::defs::devdata::IDCODE) {
@@ -143,6 +146,13 @@ fn main() {
                 }
             }
             g.global(&cells);
+            let bond = dev
+                .bonds
+                .iter()
+                .find(|(_, name, _)| name.eq_ignore_ascii_case(&package))
+                .map(|(_, _, &b)| &db.bonds[b])
+                .unwrap_or_else(|| panic!("{}: no package {package}", dev.name));
+            g.vref_pins(&cells, &bond.vref.iter().map(|p| p.bel).collect::<Vec<_>>());
             if !errors.is_empty() {
                 for e in &errors {
                     eprintln!("error: {e}");

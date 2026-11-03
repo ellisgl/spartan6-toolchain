@@ -165,7 +165,7 @@ $(DBUILD)/%/routed.json: $(DBUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $
 $(S6BITGEN): $(EXPORTER)
 
 $(DBUILD)/%/design.bin: $(DBUILD)/%/routed.json $(S6BITGEN) $(DB) $(BUILD)/$(DEVICE).json
-	$(S6BITGEN) --db $(DB) --device $(DEVICE) gen --routed $< --chipdb-json $(BUILD)/$(DEVICE).json --out $@
+	$(S6BITGEN) --db $(DB) --device $(DEVICE) gen --package $(PACKAGE) --routed $< --chipdb-json $(BUILD)/$(DEVICE).json --out $@
 
 # --- ISE cross-check ---------------------------------------------------------
 

@@ -1,0 +1,7 @@
+# SSTL2_I in bank 3 (left side header pins; P1 is a VREF pin, left free for ISE).
+NET "i<0>" LOC = P12 | IOSTANDARD = SSTL2_I;
+NET "i<1>" LOC = P14 | IOSTANDARD = SSTL2_I;
+NET "o<0>" LOC = P8  | IOSTANDARD = SSTL2_I;
+NET "o<1>" LOC = P9  | IOSTANDARD = SSTL2_I;
+NET "o<2>" LOC = P10 | IOSTANDARD = SSTL2_I;
+NET "o<3>" LOC = P2  | IOSTANDARD = SSTL2_I;
