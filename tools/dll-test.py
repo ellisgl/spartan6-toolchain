@@ -22,6 +22,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", default="/dev/ttyACM0")
     ap.add_argument("--runs", type=int, default=3)
+    ap.add_argument("--design", default="dll", help="dll (CLK0 feedback) or dll2x (CLK2X feedback)")
     args = ap.parse_args()
     bad = False
     with serial.Serial(args.port, 115200, timeout=2) as s:

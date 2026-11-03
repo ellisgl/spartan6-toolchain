@@ -687,8 +687,8 @@ impl<'a> Gen<'a> {
                     return Err(format!("{}: DCM dynamic phase shift (PSDONE) is not supported yet", c.name));
                 }
                 let feedback = p("CLK_FEEDBACK").unwrap_or("1X".into());
-                if !matches!(feedback.as_str(), "1X" | "NONE") {
-                    return Err(format!("{}: DCM CLK_FEEDBACK = {feedback} is not supported yet (1X or NONE)", c.name));
+                if !matches!(feedback.as_str(), "1X" | "2X" | "NONE") {
+                    return Err(format!("{}: DCM CLK_FEEDBACK = {feedback} is not supported", c.name));
                 }
                 for (attr, ok) in [
                     ("DLL_FREQUENCY_MODE", "LOW"),
@@ -700,7 +700,7 @@ impl<'a> Gen<'a> {
                         return Err(format!("{}: DCM {attr} = {v} is not supported yet ({ok})", c.name));
                     }
                 }
-                let dll = feedback == "1X";
+                let dll = feedback != "NONE";
                 let phase_mode = p("CLKOUT_PHASE_SHIFT").unwrap_or("NONE".into());
                 if !matches!(phase_mode.as_str(), "NONE" | "FIXED") {
                     return Err(format!("{}: DCM CLKOUT_PHASE_SHIFT = {phase_mode} is not supported yet (NONE or FIXED)", c.name));
@@ -774,6 +774,9 @@ impl<'a> Gen<'a> {
                     }
                     // Shared with REG_DLL_S's default bits (written above).
                     self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 0);
+                    if feedback == "2X" {
+                        self.set_raw_num(bcrd, "CLK_FEEDBACK_2X", 1);
+                    }
                 } else {
                     self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 1);
                 }
@@ -789,7 +792,7 @@ impl<'a> Gen<'a> {
                 for out in ["CLK0", "CLK90", "CLK180", "CLK270", "CLK2X", "CLK2X180", "CLKDV"] {
                     if used.contains(&out) {
                         if !dll {
-                            return Err(format!("{}: DCM output {out} needs CLK_FEEDBACK = \"1X\"", c.name));
+                            return Err(format!("{}: DCM output {out} needs CLK_FEEDBACK = \"1X\" or \"2X\"", c.name));
                         }
                         self.set_raw_num(bcrd, &format!("OUT_{out}_ENABLE"), 1);
                     }

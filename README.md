@@ -66,6 +66,7 @@ talks to the Mojo over its USB serial port):
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
 | `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
 | `phase` | `tools/phase-test.py` | DCM fixed phase shift +-90 and +-135 degrees (sampled on the board clock) |
+| `dll2x` | `tools/dll-test.py --design dll2x` | as `dll`, with CLK2X fed back (CLK_FEEDBACK = 2X) |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -378,7 +379,7 @@ primary source is kept, as an always-on pip) and factory-test wires
   (unused port, address bits below the width, data bits above it) are
   disconnected and used-but-undriven inputs tied low, as ISE does.
 - **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
-- **DCM DLL (CLK_FEEDBACK = 1X):** CLK0/90/180/270, CLK2X/CLK2X180 and
+- **DCM DLL (CLK_FEEDBACK = 1X or 2X):** CLK0/90/180/270, CLK2X/CLK2X180 and
   CLKDV; the DLL bits as ISE sets them, and CLKDV_DIVIDE encoded as ISE
   does for all 22 legal values (checked against ISE for each). Fixed phase
   shift (CLKOUT_PHASE_SHIFT = FIXED, PHASE_SHIFT -255 .. 255): twice the
@@ -461,7 +462,7 @@ Packer limits for now:
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
   CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
-  uses RAM32M instead), DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
+  uses RAM32M instead), DCM DLL_FREQUENCY_MODE = HIGH,
   variable phase shift (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE) and
   duty-cycle correction off,
   PLL CLKINSEL driven dynamically.
