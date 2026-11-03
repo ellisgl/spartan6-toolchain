@@ -153,6 +153,31 @@ void Spartan6Impl::pack_clocking()
                 only_clock = false;
         if (!only_clock)
             continue;
+        // Only a clock-capable pin has a dedicated path to the BUFGs; other
+        // pins reach them through general routing from the data input.
+        if (ci->attrs.count(id_BEL)) {
+            BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());
+            WireId src = ctx->getBelPinWire(pad_bel, id_GCLK_I);
+            pool<WireId> seen{src};
+            std::vector<WireId> frontier{src};
+            bool reaches = false;
+            for (int d = 0; d < 10 && !frontier.empty() && !reaches; d++) {
+                std::vector<WireId> next;
+                for (WireId w : frontier) {
+                    for (auto bp : ctx->getWireBelPins(w))
+                        if (ctx->getBelType(bp.bel) == id_BUFGMUX)
+                            reaches = true;
+                    for (PipId pip : ctx->getPipsDownhill(w)) {
+                        WireId dst = ctx->getPipDstWire(pip);
+                        if (seen.insert(dst).second)
+                            next.push_back(dst);
+                    }
+                }
+                frontier = std::move(next);
+            }
+            if (!reaches)
+                continue;
+        }
         ci->renamePort(id_I, id_GCLK_I);
         if (ci->attrs.count(id_BEL)) {
             BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());
@@ -160,6 +185,119 @@ void Spartan6Impl::pack_clocking()
         }
     }
     log_info("Packed %d global buffers.\n", count);
+}
+
+// ODDR2 driving an output pad: the pad's OLOGIC as a DDR output register
+// (cell OLOGIC, D0 -> D1, D1 -> D2, CE -> OCE, R/S -> SR), clocked through the
+// I/O tile's IOI_DDR (cell IOI_DDR), which takes the clock on both its
+// inputs. C1 must be C0 inverted (a LUT1/INV on C0, as yosys makes ~C0): the
+// second clock is C0 at the site with CLK1 inverted (as ISE writes it).
+// The pad needs a LOC; the cells go on its OLOGIC / IOI_DDR.
+void Spartan6Impl::pack_oddr()
+{
+    auto is_inverter_of = [&](NetInfo *n, NetInfo *of) {
+        if (!n || !n->driver.cell)
+            return false;
+        CellInfo *d = n->driver.cell;
+        bool inv = d->type == id_INV ||
+                   (d->type == id_LUT1 && d->params.count(id_INIT) && (d->params.at(id_INIT).as_int64() & 3) == 1);
+        return inv && d->getPort(d->type == id_INV ? id_I : id_I0) == of;
+    };
+    std::vector<CellInfo *> oddrs;
+    for (auto &cell : ctx->cells)
+        if (cell.second->type == ctx->id("ODDR2"))
+            oddrs.push_back(cell.second.get());
+    pool<IdString> dead;
+    for (CellInfo *ci : oddrs) {
+        NetInfo *q = ci->getPort(id_Q);
+        CellInfo *iob = nullptr;
+        if (q && q->users.entries() == 1) {
+            auto &u = *q->users.begin();
+            if (u.cell->type == id_IOB && u.port == id_O)
+                iob = u.cell;
+        }
+        if (!iob)
+            log_error("ODDR2 %s: Q must drive an output pad and nothing else\n", ctx->nameOf(ci));
+        if (!iob->attrs.count(id_BEL))
+            log_error("ODDR2 %s: its pad needs a LOC\n", ctx->nameOf(ci));
+        std::string bel = iob->attrs.at(id_BEL).as_string(); // "X../IOB[k]"
+        std::string tile = bel.substr(0, bel.find('/'));
+        std::string k = bel.substr(bel.find('[')); // "[k]"
+        NetInfo *c0 = ci->getPort(ctx->id("C0")), *c1 = ci->getPort(ctx->id("C1"));
+        if (!c0 || !is_inverter_of(c1, c0))
+            log_error("ODDR2 %s: C1 must be C0 inverted (C0 = clk, C1 = ~clk) for now\n", ctx->nameOf(ci));
+        CellInfo *inv = c1->driver.cell;
+
+        CellInfo *ddr = ctx->createCell(ctx->idf("%s$ioi_ddr", ci->name.c_str(ctx)), ctx->id("IOI_DDR"));
+        ddr->addInput(ctx->id("CLK0"));
+        ddr->addInput(ctx->id("CLK1"));
+        ddr->addOutput(id_CLK);
+        ddr->connectPort(ctx->id("CLK0"), c0);
+        ddr->connectPort(ctx->id("CLK1"), c0);
+        NetInfo *dclk = ctx->createNet(ctx->idf("%s$ddrclk", ci->name.c_str(ctx)));
+        ddr->connectPort(id_CLK, dclk);
+        ddr->attrs[id_BEL] = tile + "/IOI_DDR" + k;
+
+        CellInfo *ol = ctx->createCell(ctx->idf("%s$ologic", ci->name.c_str(ctx)), ctx->id("OLOGIC"));
+        for (auto &p : ci->params)
+            ol->params[p.first] = p.second;
+        ol->params[ctx->id("OLOGIC_MODE")] = std::string("ODDR2");
+        ol->params[ctx->id("PAD")] = iob->name.str(ctx);
+        ol->addInput(id_CLK);
+        ol->connectPort(id_CLK, dclk);
+        auto move = [&](IdString from, IdString to) {
+            NetInfo *n = ci->getPort(from);
+            if (!n)
+                return;
+            ci->disconnectPort(from);
+            ol->addInput(to);
+            ol->connectPort(to, n);
+        };
+        move(ctx->id("D0"), id_D1);
+        move(ctx->id("D1"), id_D2);
+        move(id_CE, ctx->id("OCE"));
+        NetInfo *r = ci->getPort(id_R), *s = ci->getPort(id_S);
+        bool r_used = r && r->constant_value != id_GND, s_used = s && s->constant_value != id_GND;
+        if (r_used && s_used)
+            log_error("ODDR2 %s: both R and S used is not supported\n", ctx->nameOf(ci));
+        if (r_used || s_used) {
+            move(r_used ? id_R : id_S, id_SR);
+        } else {
+            // ISE ties an unused SR to ground (its DRC wants an SR signal for
+            // the reset type).
+            ol->addInput(id_SR);
+            ol->connectPort(id_SR, ctx->nets.at(ctx->id("$PACKER_GND")).get());
+        }
+        ol->params[ctx->id("SR_KIND")] = std::string(s_used ? "SET" : "RESET");
+        ol->attrs[id_BEL] = tile + "/OLOGIC" + k;
+        ddr->params[id_OLOGIC] = ol->name.str(ctx);
+        // The OLOGIC drives the pad itself: the pad's O input goes. A T tied
+        // low means always driving (the tristate path would need the same
+        // OLOGIC; not supported with DDR yet).
+        iob->disconnectPort(id_O);
+        if (NetInfo *t = iob->getPort(id_T)) {
+            if (t->constant_value != id_GND)
+                log_error("ODDR2 %s: a tristated DDR output is not supported yet\n", ctx->nameOf(ci));
+            iob->disconnectPort(id_T);
+        }
+        iob->params[ctx->id("OLOGIC_DDR")] = Property(1, 1);
+        for (auto &p : std::vector<IdString>{ctx->id("C0"), ctx->id("C1"), id_Q, id_R, id_S})
+            if (ci->ports.count(p))
+                ci->disconnectPort(p);
+        dead.insert(ci->name);
+        if (c1->users.entries() == 0)
+            dead.insert(inv->name);
+        log_info("ODDR2 %s -> %s/OLOGIC%s\n", ctx->nameOf(ci), tile.c_str(), k.c_str());
+    }
+    for (IdString name : dead) {
+        CellInfo *c = ctx->cells.at(name).get();
+        std::vector<IdString> ports;
+        for (auto &p : c->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            c->disconnectPort(p);
+        ctx->cells.erase(name);
+    }
 }
 
 // A LUT1 inverter (or INV) on a FF, RAM or SRL clock becomes the cell's

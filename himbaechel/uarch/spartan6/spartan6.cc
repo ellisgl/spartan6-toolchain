@@ -85,6 +85,7 @@ void Spartan6Impl::pack()
     pack_io();
     h.replace_constants(CellTypePort(id_PSEUDO_VCC, id_Y), CellTypePort(id_PSEUDO_GND, id_Y), {}, {}, id_VCC,
                         id_GND);
+    pack_oddr();
     pack_cmt();
     pack_clocking();
     pack_bram();

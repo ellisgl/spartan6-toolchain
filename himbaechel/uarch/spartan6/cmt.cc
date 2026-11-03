@@ -264,8 +264,9 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         if (c->attrs.count(id_BEL))
             continue;
         std::vector<IdString> pins;
+        // A BUFG is the BUFGMUX's I0 (the writers don't drive I1 / S yet).
         if (c->type == id_BUFGMUX && usr.port.in(id_I0, id_I1))
-            pins = {id_I0, id_I1};
+            pins = {id_I0};
         else if (c->type == id_DCM && usr.port == id_CLKIN)
             pins = {id_CLKIN};
         else if (c->type == id_BUFIO2 && usr.port == id_I)
@@ -294,6 +295,18 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
                     best_dist = it->second;
                 }
             }
+        }
+        // A BUFG fed from a pin without a dedicated clock path (or from
+        // logic): any free BUFGMUX, reached through general routing.
+        if (best == BelId() && c->type == id_BUFGMUX) {
+            for (BelId bel : ctx->getBels())
+                if (ctx->getBelType(bel) == id_BUFGMUX && !used_clock_bels.count(bel)) {
+                    best = bel;
+                    best_pin = id_I0;
+                    break;
+                }
+            if (best != BelId())
+                log_info("    %s: no dedicated path from %s, using general routing\n", ctx->nameOf(c), from.c_str());
         }
         if (best == BelId())
             log_error("No %s site is reachable from %s for %s\n", c->type.c_str(ctx), from.c_str(), ctx->nameOf(c));

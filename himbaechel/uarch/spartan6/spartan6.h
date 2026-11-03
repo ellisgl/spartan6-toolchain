@@ -83,6 +83,7 @@ struct Spartan6Impl : HimbaechelAPI
     // (driven by a BUFGMUX), which must reach clock pins through HCLK.
     bool checkPipAvailForNet(PipId pip, const NetInfo *net) const override;
     void absorb_clock_inverters();
+    void pack_oddr();
     bool bufio2fb_reaches_pll(CellInfo *fb, BelId bel);
     TimingClockingInfo getPortClockingInfo(const CellInfo *cell, IdString port, int index) const override;
     // DSP timing is stored per bus on bit 0 (A0 -> P0); M is looked up as P.
