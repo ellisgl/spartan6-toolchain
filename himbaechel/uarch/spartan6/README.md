@@ -12,7 +12,7 @@ Spartan-6 database.
   falling-edge FFs/RAM/SRLs (slice clock inversion), CARRY4, MUXF7/MUXF8,
   RAMB16BWER/RAMB8BWER, DSP48A1, distributed RAM (RAM64X1S, RAM32M, RAM64M,
   RAM64X1D, RAM128X1S/D, RAM256X1S), SRLC32E (including Q31 chains) and
-  SRL16E, ODDR2 (DDR output / clock forwarding, C1 = ~C0), I/O
+  SRL16E, ODDR2 and IDDR2 (DDR output / clock forwarding and DDR input, C1 = ~C0), I/O
   (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/25/18/15/12,
   PULLUP/PULLDOWN, DRIVE, SLEW), BUFG and the global clock network, DCM_SP
   (CLKFX/CLKFX180, and the DLL outputs with CLK_FEEDBACK = 1X) and

@@ -300,6 +300,95 @@ void Spartan6Impl::pack_oddr()
     }
 }
 
+// IDDR2 fed from an input pad: the pad's ILOGIC as a DDR input register (cell
+// ILOGIC; Q0 on the site's Q4, Q1 on Q3, CE -> CE0), clocked through the I/O
+// tile's IOI_DDR like ODDR2. C1 must be C0 inverted, R/S unused (their pin is
+// on the I/O tile's SR line, not modelled); the pad needs a LOC.
+void Spartan6Impl::pack_iddr()
+{
+    std::vector<CellInfo *> iddrs;
+    for (auto &cell : ctx->cells)
+        if (cell.second->type == ctx->id("IDDR2"))
+            iddrs.push_back(cell.second.get());
+    pool<IdString> dead;
+    for (CellInfo *ci : iddrs) {
+        NetInfo *d = ci->getPort(id_D);
+        CellInfo *iob = d ? d->driver.cell : nullptr;
+        if (!iob || iob->type != id_IOB || d->driver.port != id_I || d->users.entries() != 1)
+            log_error("IDDR2 %s: D must come from an input pad and feed nothing else\n", ctx->nameOf(ci));
+        if (!iob->attrs.count(id_BEL))
+            log_error("IDDR2 %s: its pad needs a LOC\n", ctx->nameOf(ci));
+        std::string bel = iob->attrs.at(id_BEL).as_string();
+        std::string tile = bel.substr(0, bel.find('/'));
+        std::string k = bel.substr(bel.find('['));
+        NetInfo *c0 = ci->getPort(ctx->id("C0")), *c1 = ci->getPort(ctx->id("C1"));
+        CellInfo *inv = c1 ? c1->driver.cell : nullptr;
+        bool is_inv = inv && (inv->type == id_INV || (inv->type == id_LUT1 && inv->params.count(id_INIT) &&
+                                                      (inv->params.at(id_INIT).as_int64() & 3) == 1));
+        if (!c0 || !is_inv || inv->getPort(inv->type == id_INV ? id_I : id_I0) != c0)
+            log_error("IDDR2 %s: C1 must be C0 inverted (C0 = clk, C1 = ~clk) for now\n", ctx->nameOf(ci));
+
+        CellInfo *ddr = ctx->createCell(ctx->idf("%s$ioi_ddr", ci->name.c_str(ctx)), id_IOI_DDR);
+        ddr->addInput(ctx->id("CLK0"));
+        ddr->addInput(ctx->id("CLK1"));
+        ddr->addOutput(id_CLK);
+        ddr->connectPort(ctx->id("CLK0"), c0);
+        ddr->connectPort(ctx->id("CLK1"), c0);
+        NetInfo *dclk = ctx->createNet(ctx->idf("%s$ddrclk", ci->name.c_str(ctx)));
+        ddr->connectPort(id_CLK, dclk);
+        ddr->attrs[id_BEL] = tile + "/IOI_DDR" + k;
+
+        CellInfo *il = ctx->createCell(ctx->idf("%s$ilogic", ci->name.c_str(ctx)), ctx->id("ILOGIC"));
+        for (auto &p : ci->params)
+            il->params[p.first] = p.second;
+        il->params[ctx->id("PAD")] = iob->name.str(ctx);
+        il->addInput(id_CLK);
+        il->connectPort(id_CLK, dclk);
+        auto move = [&](IdString from, IdString to, PortType dir) {
+            NetInfo *n = ci->getPort(from);
+            if (!n)
+                return;
+            ci->disconnectPort(from);
+            il->ports[to].name = to;
+            il->ports[to].type = dir;
+            il->connectPort(to, n);
+        };
+        move(ctx->id("Q0"), ctx->id("Q4"), PORT_OUT);
+        move(ctx->id("Q1"), ctx->id("Q3"), PORT_OUT);
+        move(id_CE, ctx->id("CE0"), PORT_IN);
+        NetInfo *r = ci->getPort(id_R), *s = ci->getPort(id_S);
+        bool r_used = r && r->constant_value != id_GND, s_used = s && s->constant_value != id_GND;
+        if (r_used && s_used)
+            log_error("IDDR2 %s: both R and S used is not supported\n", ctx->nameOf(ci));
+        if (r_used || s_used)
+            log_error("IDDR2 %s: R/S are not supported yet\n", ctx->nameOf(ci));
+        il->params[ctx->id("SR_KIND")] = std::string(s_used ? "SET" : "RESET");
+        il->attrs[id_BEL] = tile + "/ILOGIC" + k;
+        ddr->params[id_OLOGIC] = il->name.str(ctx);
+        ddr->params[ctx->id("LOGIC")] = std::string("ILOGIC");
+        // The ILOGIC reads the pad itself: the pad's fabric output goes.
+        ci->disconnectPort(id_D);
+        iob->disconnectPort(id_I);
+        iob->params[ctx->id("ILOGIC_DDR")] = Property(1, 1);
+        for (auto &p : std::vector<IdString>{ctx->id("C0"), ctx->id("C1"), id_R, id_S})
+            if (ci->ports.count(p))
+                ci->disconnectPort(p);
+        dead.insert(ci->name);
+        if (c1->users.entries() == 0)
+            dead.insert(inv->name);
+        log_info("IDDR2 %s -> %s/ILOGIC%s\n", ctx->nameOf(ci), tile.c_str(), k.c_str());
+    }
+    for (IdString name : dead) {
+        CellInfo *c = ctx->cells.at(name).get();
+        std::vector<IdString> ports;
+        for (auto &p : c->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            c->disconnectPort(p);
+        ctx->cells.erase(name);
+    }
+}
+
 // A LUT1 inverter (or INV) on a FF, RAM or SRL clock becomes the cell's
 // clock inversion (the slice's CLKINV), as ISE's map does: a global clock
 // can't be routed into a LUT input. yosys inverts RAM64M clocks this way.
