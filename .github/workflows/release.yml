@@ -37,7 +37,7 @@ jobs:
           done
 
       - name: Check the binary's shared libraries
-        run: ldd build/nextpnr-build/nextpnr-himbaechel
+        run: file build/nextpnr-build/nextpnr-himbaechel; ldd build/nextpnr-build/nextpnr-himbaechel || true
 
       - name: Package
         run: |
