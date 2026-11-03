@@ -1202,6 +1202,34 @@ fn main() {
             if n.driver.as_ref().is_some_and(|(dc, _)| cells[*dc].typ == "IOI_DDR") {
                 continue;
             }
+            // DSP cascade (PCOUT/BCOUT/CARRYOUT -> the next DSP's PCIN/BCIN/
+            // CARRYIN): hardwired, one ISE pip in the lower DSP's tile.
+            if let Some((dc, dp)) = &n.driver
+                && cells[*dc].typ == "DSP"
+                && (dp.starts_with("PCOUT") || dp.starts_with("BCOUT") || dp == "CARRYOUT")
+            {
+                let lower = &cells[*dc];
+                let (lx, ly, lb) = &lower.bel;
+                let (tile, _) = names.site(names.bel(*lx, *ly, lb));
+                xnets.push(Net {
+                    name: n.name.clone(),
+                    typ: NetType::Plain,
+                    outpins: vec![NetPin { inst_name: lower.name.clone(), pin: dp.clone() }],
+                    inpins: n
+                        .users
+                        .iter()
+                        .map(|(uc, up)| NetPin { inst_name: cells[*uc].name.clone(), pin: up.clone() })
+                        .collect(),
+                    pips: vec![NetPip {
+                        tile,
+                        wire_from: format!("{dp}_DSP48A1_SITE"),
+                        wire_to: format!("{dp}_DSP48A1_B_SITE"),
+                        dir: PipDirection::UniBuf,
+                    }],
+                    cfg: vec![],
+                });
+                continue;
+            }
             // Each emitted item hangs off a canonical node, so constant nets can
             // be split per TIEOFF source.
             let mut items: Vec<(WireCoord, Item)> = vec![];

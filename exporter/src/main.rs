@@ -427,6 +427,21 @@ fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
                             tb.pip(clk, cfb0, "RT_ILOGIC", false, vec![slot_name.clone(), bslot_name.clone()]);
                         }
                     }
+                    // DSP48A1 cascade (PCOUT -> PCIN, BCOUT -> BCIN, CARRYOUT ->
+                    // CARRYIN of the DSP above): hardwired, with no bits, so
+                    // prjcombine has no pins for it. Synthesized wires, joined
+                    // to the next DSP's by nodes in main.
+                    if bcls.name == "DSP" {
+                        for (out, inp, n) in DSP_CASCADES {
+                            for i in 0..*n {
+                                let idx = if *n > 1 { format!("{i}") } else { String::new() };
+                                let ow = tb.pseudo_wire(dsp_cascade_wire(&bslot_name, out, i, *n));
+                                let iw = tb.pseudo_wire(dsp_cascade_wire(&bslot_name, inp, i, *n));
+                                pins.push(OutBelPin { name: format!("{out}{idx}"), wire: ow, dir: "OUT", inv: false, invertible: false });
+                                pins.push(OutBelPin { name: format!("{inp}{idx}"), wire: iw, dir: "IN", inv: false, invertible: false });
+                            }
+                        }
+                    }
                     if bcls.name == "SLICE" {
                         // Replace the site-level slice with LUT/FF/mux/carry sub-bels.
                         slice::expand(&mut tb, db, &bslot_name, &bel_type, bcls, bel, &slot_name, &pins);
@@ -544,6 +559,25 @@ fn main() {
             nodes.push(vec![[px, py, prev.wire_idx[&cout]], [t.x, t.y, here.wire_idx[&cin]]]);
         }
     }
+    // DSP48A1 cascade: each DSP's PCOUT/BCOUT/CARRYOUT wires are the PCIN/
+    // BCIN/CARRYIN wires of the DSP one site (4 rows) up.
+    for t in &tiles {
+        let here = &types[t.tile_type];
+        let Some(&_) = here.wire_idx.get(&dsp_cascade_wire("DSP", "PCOUT", 0, 48)) else { continue };
+        let Some(&up) = tile_at.get(&(t.x, t.y + 4)) else { continue };
+        let above = &types[up];
+        if !above.wire_idx.contains_key(&dsp_cascade_wire("DSP", "PCIN", 0, 48)) {
+            continue;
+        }
+        for (out, inp, n) in DSP_CASCADES {
+            for i in 0..*n {
+                nodes.push(vec![
+                    [t.x, t.y, here.wire_idx[&dsp_cascade_wire("DSP", out, i, *n)]],
+                    [t.x, t.y + 4, above.wire_idx[&dsp_cascade_wire("DSP", inp, i, *n)]],
+                ]);
+            }
+        }
+    }
     nodes.sort();
 
     // Package pins.
@@ -600,4 +634,12 @@ fn main() {
     };
     let f = std::fs::File::create(&args.out).expect("failed to create output");
     serde_json::to_writer(std::io::BufWriter::new(f), &out).expect("failed to write JSON");
+}
+
+/// DSP48A1 cascade buses: (output, input of the DSP above, width).
+const DSP_CASCADES: &[(&str, &str, usize)] = &[("PCOUT", "PCIN", 48), ("BCOUT", "BCIN", 18), ("CARRYOUT", "CARRYIN", 1)];
+
+/// Synthesized wire of a DSP cascade pin.
+fn dsp_cascade_wire(bslot: &str, bus: &str, i: usize, n: usize) -> String {
+    if n > 1 { format!("{bslot}.{bus}[{i}]") } else { format!("{bslot}.{bus}") }
 }
