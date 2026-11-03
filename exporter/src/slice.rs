@@ -152,12 +152,13 @@ pub fn expand(
             for val in enum_opts(db, bcls, bel, &attr) {
                 let srcs = match val.as_str() {
                     v if v == format!("{x}X") => vec![pin(&format!("{x}X"))],
-                    // ALT also carries the letter above's data (BDI1 / DX).
-                    // Offered for C only (DX; XDL CDI1MUX::DX), which
-                    // RAM128X1S needs: CX is its 7th address bit there.
-                    // Otherwise only the shift cascade.
-                    "ALT" if x == 'C' => vec![mc31[li + 1], pin("DX")],
-                    "ALT" => vec![mc31[li + 1]],
+                    // ALT also carries the data of the letter above: DX for
+                    // C and B (XDL <L>DI1MUX::DX), B's DI1 for A (ADI1MUX::
+                    // BDI1). The wide RAMs (RAM64X1D, RAM128X1x, RAM256X1S)
+                    // use it, as ISE's map does; ISE allows it only for RAM
+                    // (the chip database flags these pips for the uarch).
+                    "ALT" if x == 'A' => vec![mc31[li + 1], di1[1]],
+                    "ALT" => vec![mc31[li + 1], pin("DX")],
                     other => panic!("unexpected {attr} option {other}"),
                 };
                 for src in srcs {

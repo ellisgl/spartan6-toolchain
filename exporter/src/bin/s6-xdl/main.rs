@@ -487,8 +487,9 @@ fn main() {
                             p if p.starts_with("WA") && p.len() == 3 => (vec![format!("D{}", &p[2..])], false),
                             // Always the letter's own bypass pin (the chip database
                             // offers ALT only for shift cascades).
-                            // The C LUT can also take DX (CDI1MUX::DX, RAM128X1S).
-                            "DI1" if l == 'C' => (vec!["CX".into(), "DX".into()], false),
+                            // A, B and C can also take DX through the letter above
+                            // (<L>DI1MUX = DX / BDI1; the wide RAMs).
+                            "DI1" if l != 'D' => (vec![format!("{l}X"), "DX".into()], false),
                             "DI1" => (vec![format!("{l}X")], false),
                             "DI2" => (vec![format!("{l}I")], false),
                             "WE" => (vec!["WE".into()], false), // only the WE pin (CE would gate the FFs)
@@ -1385,9 +1386,13 @@ fn main() {
             } else if attr == "COUTUSED" {
                 ("COUTUSED".into(), val)
             } else if attr.starts_with("MUX_") && attr.ends_with("DI1") {
-                // ISE names the ALT source: DX for the C LUT (the only ALT
-                // use the chip database offers outside shift cascades).
-                let v = if attr == "MUX_CDI1" && val == "ALT" { "DX".to_string() } else { val };
+                // ISE names the ALT source: DX for C and B, BDI1 for A (the
+                // only ALT uses the chip database offers outside cascades).
+                let v = match (attr.as_str(), val.as_str()) {
+                    ("MUX_CDI1" | "MUX_BDI1", "ALT") => "DX".to_string(),
+                    ("MUX_ADI1", "ALT") => "BDI1".to_string(),
+                    _ => val,
+                };
                 (format!("{}DI1MUX", l(&attr, "MUX_")), v)
             } else if attr == "MUX_WE" {
                 ("WEMUX".into(), val)

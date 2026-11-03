@@ -45,11 +45,12 @@ def main():
         for p in tt_json["pips"]:
             # Delay class: the class of the driven wire, or the slice mux.
             pip = tt.create_pip(names[p["src"]], names[p["dst"]], p["timing_class"])
-            # Flag 1: the C LUT's DI1 from DX (MUX_CDI1 = ALT, not the MC31
-            # cascade). ISE allows it only for RAM (RAM128X1S), not SRLs; the
-            # uarch checks.
+            # Flag 1: a LUT's DI1 from the letter above's data (MUX_<L>DI1 =
+            # ALT, not the MC31 cascade). ISE allows it only for RAM, not
+            # SRLs; the uarch checks.
             ref = p.get("src_ref", [])
-            if p["kind"] == "SITE" and ref[2:4] == ["MUX_CDI1", "ALT"] and "MC31" not in names[p["src"]]:
+            if p["kind"] == "SITE" and len(ref) >= 4 and ref[2] in ("MUX_ADI1", "MUX_BDI1", "MUX_CDI1") \
+                    and ref[3] == "ALT" and "MC31" not in names[p["src"]]:
                 pip.flags = 1
             # Flag 2: a clock input mux (IMUX_CLK) fed from general routing,
             # not a tile clock (HCLK). The uarch keeps global clock nets off

@@ -64,6 +64,7 @@ talks to the Mojo over its USB serial port):
 | `speed` | `tools/speed-test.py` | on-chip Fmax sweep of a timed path (see Delay model) |
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
+| `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -391,10 +392,12 @@ primary source is kept, as an always-on pip) and factory-test wires
 - **Distributed RAM / SRL (`lutram.cc`):** SLICEM LUTs as RAM64X1S (up to four
   per slice sharing the address, one always the D LUT, whose inputs are the
   write address), RAM32M and RAM64M (whole slice; what yosys uses for a
-  RAM with separate read and write addresses), RAM128X1S (D and C LUTs plus
-  F7BMUX; C takes the data from DX through CDI1MUX, A6 on CX as WA7, as
-  ISE's map lays it out; ISE allows that DX path only for RAM, so the
-  uarch vetoes the pip, flagged in the chip database, for anything else)
+  RAM with separate read and write addresses), the wide RAMs RAM64X1D, RAM128X1S,
+  RAM128X1D and RAM256X1S (RAM64 LUTs plus F7/F8 muxes in one slice, laid
+  out as ISE's map does: WA7 on CX, WA8 on BX, data on DX, C and B taking it
+  through their DI1 mux and A through B's; ISE allows those DI1 paths only
+  for RAM, so the uarch vetoes the pips, flagged in the chip database, for
+  anything else)
   and SRLC32E/SRL16E (any SLICEM LUT). A cascade output Q31 (yosys chains
   SRLC32Es for shift registers longer than 32) is taken from Q at address
   31 when Q is unused, so the cascade is ordinary routing. Address pins tied to 0 (an SRL's fixed tap) and undriven
@@ -437,8 +440,8 @@ Packer limits for now:
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
-  CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D,
-  RAM64X1D, RAM128X1D, DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
+  CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
+  uses RAM32M instead), DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
   phase shifting (CLKOUT_PHASE_SHIFT, PSDONE) and duty-cycle correction off,
   PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2 driven
   dynamically.
