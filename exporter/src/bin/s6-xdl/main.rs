@@ -226,6 +226,22 @@ impl SliceInst {
 }
 
 impl Names<'_> {
+    /// ISE (tile, wire) name of one of our wires (local name in a cell).
+    fn ise_wire(&self, cell: CellCoord, edev: &prjcombine_interconnect::grid::ExpandedGrid, name: &str) -> Option<(String, String)> {
+        let raw = parse_wire_name(edev, cell, name)?;
+        let ngrid = &self.nedev.ngrid;
+        for (slot, _) in &self.edev[cell].tiles {
+            let tcrd = cell.tile(slot);
+            let Some(ntile) = ngrid.tiles.get(&tcrd) else { continue };
+            let Some(tcw) = self.tile_tcw(tcrd, raw) else { continue };
+            let tn = &ngrid.db.tile_class_namings[ntile.naming];
+            if let Some(w) = tn.wires.get(&tcw) {
+                return Some((ntile.names[RawTileId::from_idx(0)].clone(), w.name.clone()));
+            }
+        }
+        None
+    }
+
     fn cell(&self, x: usize, y: usize) -> CellCoord {
         CellCoord { die: DieId::from_idx(0), col: ColId::from_idx(x), row: RowId::from_idx(y) }
     }
@@ -761,7 +777,7 @@ fn main() {
                     cfg,
                 });
             }
-            "DCM" | "PLL" | "BUFIO2" => {
+            "DCM" | "PLL" | "BUFIO2" | "BUFIO2FB" => {
                 assert!(routed, "{}: clock management needs routed mode", c.name);
                 let bcrd = names.bel(x, y, belname);
                 let (tile, site) = names.site(bcrd);
@@ -829,6 +845,15 @@ fn main() {
                         cfg.push(kv("DIVCLK_DIVIDE", num("DIVCLK_DIVIDE", 1).to_string()));
                         cfg.push(kv("REF_JITTER", format!("{}", real("REF_JITTER", 0.1))));
                         ("PLL_ADV", cfg)
+                    }
+                    "BUFIO2FB" => {
+                        // A PLL's BUFG feedback (inserted as ISE's map does).
+                        let cfg = vec![
+                            vec!["BUFIO2FB".into(), inst.clone(), "".into()],
+                            kv("DIVIDE_BYPASS", "TRUE".into()),
+                            kv("INVERT_INPUTS", "FALSE".into()),
+                        ];
+                        ("BUFIO2FB", cfg)
                     }
                     _ => {
                         let cfg = vec![
@@ -1135,6 +1160,62 @@ fn main() {
                         }
                     }
                     "BELOUT" => {}
+                    "RT_ILOGIC" => {
+                        // Through an unused ILOGIC: its CLK0 pin to its CFB0
+                        // pin, as ISE routes a PLL's BUFG feedback (the
+                        // placeholder site is added with the other route-
+                        // throughs below). prjcombine
+                        // doesn't name the I/O tile's clock wiring in front of
+                        // the ILOGIC (IOI_IOCLK / IOI_ICLK / IMUX_ILOGIC_CLK),
+                        // so take ISE's own path from the last named wire (the
+                        // interconnect fan-out the route came from) to the
+                        // site's CLK0 pin.
+                        has_int_pips = true;
+                        let bcrd = names.bel(*x, *y, &meta.src_ref[1]);
+                        let (tile, site) = names.site(bcrd);
+                        let (clk_t, clk_w) = raw.site_pin_wire(&site, "CLK0").expect("ILOGIC CLK0 pin");
+                        let (cfb_t, cfb_w) = raw.site_pin_wire(&site, "CFB0").expect("ILOGIC CFB0 pin");
+                        let mut up = src.clone();
+                        let mut from = None;
+                        let mut via = None; // the I/O clock line our route used
+                        for _ in 0..8 {
+                            let Some((_, _, _, usrc)) = n.route.iter().find(|(rx, ry, d, _)| (*rx, *ry) == (*x, *y) && *d == up) else { break };
+                            if !ise_unnamed_ioi_clock(&up) {
+                                break;
+                            }
+                            up = usrc.clone();
+                            via = via.or_else(|| ioi_ioclk_ise_name(&up));
+                            if !ise_unnamed_ioi_clock(&up) {
+                                from = names.ise_wire(names.cell(*x, *y), &edev, &up);
+                                break;
+                            }
+                        }
+                        let (from_t, from_w) = from.unwrap_or_else(|| panic!("net {}: no named wire before ILOGIC {site} CLK", n.name));
+                        let hop = |a: (&str, &str), b: (&str, &str)| {
+                            raw.find_path(a, b, 4).unwrap_or_else(|| panic!("net {}: no ISE path from {} to {}", n.name, a.1, b.1))
+                        };
+                        let path = match &via {
+                            Some(v) => {
+                                let mut p = hop((&from_t, &from_w), (&clk_t, v));
+                                p.extend(hop((&clk_t, v), (&clk_t, &clk_w)));
+                                p
+                            }
+                            None => hop((&from_t, &from_w), (&clk_t, &clk_w)),
+                        };
+                        let cell = names.cell(*x, *y);
+                        let raw_src = parse_wire_name(&edev, cell, src).expect("unknown src wire");
+                        let raw_dst = parse_wire_name(&edev, cell, dst).expect("unknown dst wire");
+                        let (cs, cd) = (canon(raw_src), canon(raw_dst));
+                        parent.insert(cd, cs);
+                        reached.insert(cd);
+                        sources.insert(cs);
+                        for p in path.into_iter().chain(std::iter::once((clk_t, clk_w, cfb_w))) {
+                            items.push((cs, Item::Pip(p)));
+                        }
+                        let _ = cfb_t;
+                        items.extend(names.trace(raw_src).into_iter().map(|p| (cs, Item::Pip(p))));
+                        let _ = tile;
+                    }
                     _ => {
                         has_int_pips = true;
                         let cell = names.cell(*x, *y);
@@ -1158,6 +1239,8 @@ fn main() {
                             .and_then(|(ti, to)| names.name_pip(tcrd, to, ti));
                         match named {
                             Some(pips) => items.extend(pips.into_iter().map(|p| (cs, Item::Pip(p)))),
+                            // Covered by the ILOGIC route-through's ISE path.
+                            None if ise_unnamed_ioi_clock(dst) => {}
                             None => *unnamed.entry(format!("{} {dst} <- {src}", meta.kind)).or_default() += 1,
                         }
                         items.extend(names.trace(raw_src).into_iter().map(|p| (cs, Item::Pip(p))));
@@ -1722,4 +1805,23 @@ mod tests {
 /// CLK_INV = 1 (nextpnr): the slice's clock is inverted (CLKINV = CLK_B).
 fn clk_inv(c: &s6_export::nextpnr::NCell) -> bool {
     c.params.get("CLK_INV").is_some_and(|v| v.chars().any(|ch| ch == '1'))
+}
+
+/// I/O tile clock wiring in front of the ILOGIC that prjcombine doesn't name
+/// in ISE terms (the ILOGIC route-through supplies ISE's own path).
+fn ise_unnamed_ioi_clock(wire: &str) -> bool {
+    let w = wire.rsplit('.').next().unwrap_or(wire);
+    w.starts_with("IOI_IOCLK[") || w.starts_with("IOI_ICLK[") || w.starts_with("IMUX_ILOGIC_CLK[")
+}
+
+/// ISE name of an I/O tile clock line (prjcombine IOI_IOCLK[k]): k = 0, 1 are
+/// CLK0/CLK1 of the S side, 3, 4 of the M side (2 and 5 are PLL clocks).
+fn ioi_ioclk_ise_name(wire: &str) -> Option<String> {
+    let w = wire.rsplit('.').next().unwrap_or(wire);
+    let k: usize = w.strip_prefix("IOI_IOCLK[")?.strip_suffix(']')?.parse().ok()?;
+    match k {
+        0 | 1 => Some(format!("IOI_CLK{k}INTER_S")),
+        3 | 4 => Some(format!("IOI_CLK{}INTER_M", k - 3)),
+        _ => None,
+    }
 }

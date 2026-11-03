@@ -65,6 +65,7 @@ talks to the Mojo over its USB serial port):
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
 | `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
+| `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
@@ -393,7 +394,13 @@ primary source is kept, as an always-on pip) and factory-test wires
   CLKIN2. (Fed from the fabric BUFG, the PLL missed LOCKED at some
   multipliers, e.g. x9 and x10, though its outputs were right.) COMPENSATION
   = SYSTEM/SOURCE_SYNCHRONOUS (PLL_BASE's default) with CLKFBOUT wired
-  straight to CLKFBIN becomes INTERNAL, as ISE's map does.
+  straight to CLKFBIN becomes INTERNAL, as ISE's map does; with the feedback
+  through a BUFG (as the Clocking Wizard writes it) a BUFIO2FB is inserted in
+  front of CLKFBIN. The BUFG reaches it the way ISE routes it: through the
+  clock network into an I/O tile and through an unused ILOGIC (clock to CFB0,
+  an `RT_ILOGIC` pip in the chip database, flag 4: not on an ILOGIC whose pad
+  is an input). The XDL writer takes ISE's own path for the I/O tile's clock
+  wiring, which prjcombine doesn't name, and ISE adds the placeholder site.
 - **Timing:** the speed grade comes from the device name (default -2);
   DSP cells get a timing variant by pipeline registers and constant OPMODE
   (`prePlace`); bus pins are timed through bit 0 (`dsp_timing_pin`).
@@ -451,8 +458,7 @@ Packer limits for now:
   CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
   uses RAM32M instead), DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
   phase shifting (CLKOUT_PHASE_SHIFT, PSDONE) and duty-cycle correction off,
-  PLL feedback through a BUFG (ISE routes it through an ILOGIC site to a
-  BUFIO2FB, which isn't modelled), PLL CLKINSEL driven dynamically.
+  PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
 - **Latches (LDCE/LDPE):** slice FFs in latch mode (`FF_LATCH`, slice-wide,

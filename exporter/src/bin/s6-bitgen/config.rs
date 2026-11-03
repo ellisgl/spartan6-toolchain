@@ -284,6 +284,13 @@ impl<'a> Gen<'a> {
                 self.set_enum(bcrd, &r[2], &r[3]);
             }
             "BELOUT" | "PERMABUF" | "PROGINV" | "PROGDELAY" => {}
+            "RT_ILOGIC" => {
+                // An unused ILOGIC passing CLK through to CFB0: ISE sets its
+                // IODELAY's IDELAY_FIXED.
+                let k = meta.src_ref[1].trim_start_matches("ILOGIC");
+                let iodelay = cell.bel(self.slot(&format!("IODELAY{k}")));
+                self.set_bits(iodelay, "IDELAY_FIXED", &[true]);
+            }
             _ => {
                 let r = &meta.src_ref;
                 let tslot = self.int.tile_slots.iter().find(|(_, s)| **s == r[0]).map(|(id, _)| id).unwrap();
@@ -337,7 +344,7 @@ impl<'a> Gen<'a> {
         match c.typ.as_str() {
             "PSEUDO_GND" | "PSEUDO_VCC" | "BUFGMUX" => {}
             "BRAM" => self.bram_config(c, cell)?,
-            "DCM" | "PLL" | "BUFIO2" => self.cmt_config(c, cell)?,
+            "DCM" | "PLL" | "BUFIO2" | "BUFIO2FB" => self.cmt_config(c, cell)?,
             "DSP" => {
                 let bcrd = cell.bel(self.slot(belname));
                 let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
@@ -666,6 +673,14 @@ impl<'a> Gen<'a> {
                 // DIVIDE stays 000 when bypassed (as ISE writes it).
                 self.set_bits(bcrd, "DIVIDE_BYPASS", &[true]);
             }
+            "BUFIO2FB" => {
+                // A PLL's BUFG feedback, bypassed; ISE also sets CMT_ENABLE on
+                // the BUFIO2 of the same index.
+                self.set_bits(bcrd, "ENABLE", &[true]);
+                let n = belname.trim_start_matches("BUFIO2FB");
+                let pair = cell.bel(self.slot(&format!("BUFIO2{n}")));
+                self.set_bits(pair, "CMT_ENABLE", &[true]);
+            }
             "DCM" => {
                 let used: Vec<&str> = c.conns.keys().map(String::as_str).collect();
                 if used.contains(&"PSDONE") {
@@ -802,11 +817,17 @@ impl<'a> Gen<'a> {
                 }
                 let intfb = match p("COMPENSATION").as_deref().unwrap_or("SYSTEM_SYNCHRONOUS") {
                     "INTERNAL" => 2,
-                    // The uarch turns direct-feedback SYSTEM/SOURCE_SYNCHRONOUS
-                    // into INTERNAL, as ISE's map does.
+                    // Feedback through a BUFG and a BUFIO2FB. (The uarch turns
+                    // direct feedback into INTERNAL, as ISE's map does.)
+                    "SYSTEM_SYNCHRONOUS" | "SOURCE_SYNCHRONOUS" => 0,
                     v => return Err(format!("{}: PLL COMPENSATION = {v} is not supported yet", c.name)),
                 };
                 self.set_raw_num(bcrd, "PLL_INTFB", intfb);
+                if intfb == 0 {
+                    // Compensated (feedback through a BUFIO2FB): as ISE sets it.
+                    self.set_raw_num(bcrd, "PLL_EN_DLY", 1);
+                    self.set_raw_num(bcrd, "PLL_IN_DLY_MX_SEL", 0b1010);
+                }
                 let clkin2 = p("CLKIN_SOURCE").as_deref() == Some("CLKIN2");
                 self.set_raw_num(bcrd, "CLKINSEL_STATIC_VAL", clkin2 as u64);
                 for (attr, v) in [

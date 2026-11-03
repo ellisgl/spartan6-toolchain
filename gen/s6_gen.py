@@ -73,6 +73,11 @@ def main():
             # (~1 ns of skew, or a route ISE rejects).
             if is_general(names[p["src"]]) and is_clock_net(names[p["dst"]]):
                 pip.flags |= 2
+            # Flag 4: through an unused ILOGIC (clock to CFB0, for a PLL's
+            # BUFG feedback); the uarch allows it only if the ILOGIC's I/O
+            # isn't in use.
+            if p["kind"] == "RT_ILOGIC":
+                pip.flags |= 4
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])
             # Slice sub-bels: 1 = SLICEX, 2 = SLICEL, 3 = SLICEM (read by the uarch).

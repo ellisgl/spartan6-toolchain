@@ -416,6 +416,17 @@ fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
                         pins.push(OutBelPin { name, wire, dir: "INOUT", inv: false, invertible: false });
                     }
                     let bel_type = bel_type(bslot, bcls.name.as_str(), tcls.name.as_str());
+                    // An unused ILOGIC passes its clock input through to CFB0
+                    // (ISE's route-through _ROUTETHROUGH:CLK0:CFB0): the only
+                    // way from the global clock network to a BUFIO2FB, which a
+                    // PLL's BUFG feedback needs. The uarch allows it only on a
+                    // free ILOGIC; the XDL writer adds ISE's placeholder site.
+                    if bcls.name == "ILOGIC" {
+                        let find = |n: &str| pins.iter().find(|p: &&OutBelPin| p.name == n).map(|p| p.wire);
+                        if let (Some(clk), Some(cfb0)) = (find("CLK"), find("CFB0")) {
+                            tb.pip(clk, cfb0, "RT_ILOGIC", false, vec![slot_name.clone(), bslot_name.clone()]);
+                        }
+                    }
                     if bcls.name == "SLICE" {
                         // Replace the site-level slice with LUT/FF/mux/carry sub-bels.
                         slice::expand(&mut tb, db, &bslot_name, &bel_type, bcls, bel, &slot_name, &pins);
