@@ -228,7 +228,12 @@ impl SliceInst {
 impl Names<'_> {
     /// ISE (tile, wire) name of one of our wires (local name in a cell).
     fn ise_wire(&self, cell: CellCoord, edev: &prjcombine_interconnect::grid::ExpandedGrid, name: &str) -> Option<(String, String)> {
-        let raw = parse_wire_name(edev, cell, name)?;
+        self.ise_wire_raw(parse_wire_name(edev, cell, name)?)
+    }
+
+    /// ISE (tile, wire) name of a raw wire.
+    fn ise_wire_raw(&self, raw: WireCoord) -> Option<(String, String)> {
+        let cell = raw.cell;
         let ngrid = &self.nedev.ngrid;
         for (slot, _) in &self.edev[cell].tiles {
             let tcrd = cell.tile(slot);
@@ -359,6 +364,11 @@ enum Cand {
     IobClk { iob: BelCoord, inst: String },
     /// IOB output or tristate: fabric -> OLOGIC (route-through D1 -> OQ or T1 -> TQ) -> pad.
     IobOut { iob: BelCoord, ologic: BelCoord, inst: String, d: &'static str, q: &'static str, iob_pin: &'static str },
+    /// An IOI_DDR clock input (prjcombine's DDR clocking): in ISE terms a
+    /// clock pin of the OLOGIC2 site, reached through the I/O clock line
+    /// `port` uses (CLK0 = IOI_IOCLK[0|3], CLK1 = [1|4]; ISE pairs them
+    /// crosswise with the site's CLK1 / CLK0 pins).
+    DdrClk { ddr: BelCoord, port: String, inst: String, site: String },
     /// A site pin whose routing wire, naming entry and XDL name differ, e.g.
     /// RAMB16 DIA16: wire of BRAM[1] pin DIA[0], naming BRAM[0] RAMB16_DIA16.
     Pin { wire: (BelCoord, String), naming: (BelCoord, String), xdl_pin: String, inst: String, output: bool },
@@ -431,6 +441,8 @@ fn main() {
     }
 
     let mut instances: Vec<Instance> = vec![];
+    // OLOGIC (ODDR2) cells and their pads: (ologic bel, inst, iob bel, iob inst).
+    let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String)> = vec![];
     // (tile, site) -> (kind, cfg); slice instances are named after their site.
     let mut slices: BTreeMap<(String, String), (String, SliceInst)> = BTreeMap::new();
     let mut slice_key: HashMap<String, (String, String)> = HashMap::new();
@@ -777,6 +789,50 @@ fn main() {
                     cfg,
                 });
             }
+            "OLOGIC" => {
+                // ODDR2: the OLOGIC2 site as a DDR output register (as ISE
+                // writes it); it drives its pad (net added below).
+                assert!(routed, "{}: OLOGIC needs routed mode", c.name);
+                let bcrd = names.bel(x, y, belname);
+                let (tile, site) = names.site(bcrd);
+                let inst = c.name.clone();
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
+                let init = p("INIT").map(|v| if v.contains('1') { "1" } else { "0" }.to_string()).unwrap_or("0".into());
+                let mut cfg = vec![
+                    vec!["OUTFF".into(), inst.clone(), "".into()],
+                    kv("CLK0INV", "CLK0".into()),
+                    kv("CLK1INV", "CLK1_B".into()),
+                    kv("DDR_ALIGNMENT", p("DDR_ALIGNMENT").unwrap_or("NONE".into())),
+                    kv("OMUX", "OUTFF".into()),
+                    kv("OUTFFTYPE", "DDR".into()),
+                    kv("SRINIT_OQ", init),
+                    kv("SRTYPE_OQ", p("SRTYPE").unwrap_or("SYNC".into())),
+                ];
+                for (port, used) in [("D1", "D1USED"), ("D2", "D2USED"), ("OCE", "OCEUSED"), ("SR", "OSRUSED")] {
+                    if c.conns.contains_key(port) {
+                        cfg.push(kv(used, "0".into()));
+                        pins.insert((ci, port.into()), (inst.clone(), port.into()));
+                        cands.insert((ci, port.into()), Cand::Site { bcrd, pins: vec![port.into()], inst: inst.clone(), output: false });
+                    }
+                }
+                let pad = p("PAD").expect("OLOGIC without PAD");
+                let k = belname.trim_start_matches("OLOGIC");
+                ologic_pads.push((bcrd, inst.clone(), names.bel(x, y, &format!("IOB{k}")), pad));
+                instances.push(Instance { name: inst, kind: "OLOGIC2".into(), placement: Placement::Placed { tile, site }, cfg });
+            }
+            "IOI_DDR" => {
+                // No ISE site: its clock inputs are the OLOGIC2's clock pins.
+                let ddr = names.bel(x, y, belname);
+                let k = belname.trim_start_matches("IOI_DDR");
+                let (_, site) = names.site(names.bel(x, y, &format!("OLOGIC{k}")));
+                let inst = c.params.get("OLOGIC").expect("IOI_DDR without OLOGIC").clone();
+                for port in ["CLK0", "CLK1"] {
+                    if c.conns.contains_key(port) {
+                        cands.insert((ci, port.into()), Cand::DdrClk { ddr, port: port.into(), inst: inst.clone(), site: site.clone() });
+                    }
+                }
+            }
             "DCM" | "PLL" | "BUFIO2" | "BUFIO2FB" => {
                 assert!(routed, "{}: clock management needs routed mode", c.name);
                 let bcrd = names.bel(x, y, belname);
@@ -1104,6 +1160,11 @@ fn main() {
         let canon = |w: WireCoord| edev.resolve_wire(w).unwrap_or(w);
 
         for n in &nets {
+            // The DDR clock from an IOI_DDR to its OLOGIC has no ISE net (ISE
+            // models the DDR clocking as the OLOGIC2's two clock pins).
+            if n.driver.as_ref().is_some_and(|(dc, _)| cells[*dc].typ == "IOI_DDR") {
+                continue;
+            }
             // Each emitted item hangs off a canonical node, so constant nets can
             // be split per TIEOFF source.
             let mut items: Vec<(WireCoord, Item)> = vec![];
@@ -1333,6 +1394,36 @@ fn main() {
                         }
                         hit
                     }
+                    Cand::DdrClk { ddr, port, inst, site } => {
+                        let w = names.site_pin_wire(*ddr, port).expect("IOI_DDR clock wire");
+                        let c = canon(w);
+                        let hit = reached.contains(&c);
+                        if hit {
+                            let up = *parent.get(&c).unwrap_or_else(|| panic!("{inst}: DDR clock has no upstream pip"));
+                            let (from_t, from_w) = names.ise_wire_raw(up).unwrap_or_else(|| panic!("{inst}: DDR clock source has no ISE name"));
+                            let local = db.int.wires[w.slot].name.clone();
+                            let via = ioi_ioclk_ise_name(&local).unwrap_or_else(|| panic!("{inst}: DDR clock on {local}"));
+                            let (site_pin, other) = if port == "CLK0" { ("CLK1", "CLK0") } else { ("CLK0", "CLK1") };
+                            let (pt, pw) = raw.site_pin_wire(site, site_pin).expect("OLOGIC2 clock pin");
+                            let mut path = raw
+                                .find_path((&from_t, &from_w), (&pt, &via), 4)
+                                .unwrap_or_else(|| panic!("{inst}: no ISE path from {from_w} to {via}"));
+                            let (pin, tail) = match raw.find_path((&pt, &via), (&pt, &pw), 4) {
+                                Some(t) => (site_pin, t),
+                                None => {
+                                    let (_, ow) = raw.site_pin_wire(site, other).expect("OLOGIC2 clock pin");
+                                    (other, raw.find_path((&pt, &via), (&pt, &ow), 4).unwrap_or_else(|| panic!("{inst}: no ISE path from {via} to a clock pin")))
+                                }
+                            };
+                            path.extend(tail);
+                            let (_, pin_wire) = raw.site_pin_wire(site, pin).unwrap();
+                            for p in path {
+                                items.push((c, Item::Pip(p)));
+                            }
+                            items.push((c, Item::In(inst.clone(), pin.to_string(), pt.clone(), pin_wire)));
+                        }
+                        hit
+                    }
                     Cand::IobOut { iob, ologic, inst, d, q, iob_pin } => {
                         let w = names.site_pin_wire(*ologic, d).expect("OLOGIC input wire");
                         let c = canon(w);
@@ -1516,6 +1607,26 @@ fn main() {
                     }
                 }
             }
+        }
+        // Each ODDR2's OLOGIC drives its pad: OQ -> IOB O.
+        for (ologic, inst, iob, pad) in &ologic_pads {
+            let (_, ioi_tile, q_name, _) = names.pin_naming(*ologic, "OQ").expect("OLOGIC OQ naming");
+            let (iob_pips, iob_tile, _, iob_far) = names.pin_naming(*iob, "O").expect("IOB O naming");
+            let hop = raw
+                .find_path((&ioi_tile, &q_name), (&iob_tile, &iob_far), 4)
+                .unwrap_or_else(|| panic!("{inst}: no ISE path from {q_name} to {iob_far}"));
+            xnets.push(Net {
+                name: format!("{pad}_OQ"),
+                typ: NetType::Plain,
+                outpins: vec![NetPin { inst_name: inst.clone(), pin: "OQ".into() }],
+                inpins: vec![NetPin { inst_name: pad.clone(), pin: "O".into() }],
+                pips: hop
+                    .into_iter()
+                    .chain(iob_pips)
+                    .map(|(tile, wire_from, wire_to)| NetPip { tile, wire_from, wire_to, dir: PipDirection::UniBuf })
+                    .collect(),
+                cfg: vec![],
+            });
         }
         eprintln!("added {repaired} ISE pip(s) prjcombine models as plain wires (buffers, terminations)");
         for (what, count) in &unnamed {

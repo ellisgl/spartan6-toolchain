@@ -67,6 +67,7 @@ talks to the Mojo over its USB serial port):
 | `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
 | `phase` | `tools/phase-test.py` | DCM fixed phase shift +-90 and +-135 degrees (sampled on the board clock) |
 | `dll2x` | `tools/dll-test.py --design dll2x` | as `dll`, with CLK2X fed back (CLK_FEEDBACK = 2X) |
+| `oddr` | `tools/oddr-test.py` | ODDR2: the pin read back on both clock edges shows D0 then D1 (`oddr_x4`: ISE check only) |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -473,6 +474,19 @@ Packer limits for now:
   PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
+- **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as
+  a DDR register, clocked through the I/O tile's IOI_DDR (prjcombine's DDR
+  clocking), which takes the clock on both inputs; C1 must be ~C0 (the LUT
+  inverter yosys makes), which inverts the CLK0 line feeding the site's CLK1
+  (IOI_IOCLK_OPTINV). The pad needs a LOC; a tristated DDR output isn't
+  supported yet. In XDL the IOI_DDR's inputs become the OLOGIC2's two clock
+  pins (ISE's own path through the clock line used, crosswise as ISE pairs
+  them) and the OLOGIC drives the pad on its own net. ISE also masks frame
+  28 of the column region (GLUTMASK_HCLK.FRAME28; in the clock column, which
+  has no GLUTMASK bel in prjcombine, frame 18 of its HCLK bits).
+- **BUFG inputs:** a pad only feeds BUFGs over the dedicated clock path when
+  that path reaches one (clock-capable pins); otherwise through general
+  routing from the data input, on any free BUFGMUX. BUFGs use I0 only.
 - **Latches (LDCE/LDPE):** slice FFs in latch mode (`FF_LATCH`, slice-wide,
   so part of the control set; never 5FFs), gate on the clock pin with the
   slice's clock inversion for an active-high gate (as ISE writes CLKINV =

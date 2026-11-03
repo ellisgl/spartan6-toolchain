@@ -509,6 +509,31 @@ impl<'a> Gen<'a> {
                     self.set_enum(bcrd, "PULL", pull);
                 }
             }
+            "OLOGIC" => {
+                // ODDR2: the OLOGIC as a DDR output register, as ISE sets it.
+                let bcrd = cell.bel(self.slot(belname));
+                let tcrd = self.edev.bel_tile(bcrd);
+                let k = belname.trim_start_matches("OLOGIC");
+                for attr in ["ENABLE", "FFO_SR_ENABLE", "IOCE_ENABLE", "FFO_CE_ENABLE", "FFO_CE_OR_DDR", "DDR_OPPOSITE_EDGE", "FFO_RANK1_BYPASS"] {
+                    self.set_bits(bcrd, attr, &[true]);
+                }
+                self.set_enum(bcrd, "MUX_SR", "INT");
+                // The IODELAY next to it, and the DDR clock enable.
+                let iodelay = cell.bel(self.slot(&format!("IODELAY{k}")));
+                self.set_bits(iodelay, "IDELAY_FIXED", &[true]);
+                self.set_mux_bits_raw(tcrd, &format!("IMUX_OLOGIC_IOCE{k}"), &[2]);
+            }
+            "IOI_DDR" => {
+                // DDR clocking from one clock: both halves on, no alignment,
+                // and the CLK0 line inverted (it feeds the site's CLK1, as C1 =
+                // ~C0).
+                let bcrd = cell.bel(self.slot(belname));
+                let tcrd = self.edev.bel_tile(bcrd);
+                let k: usize = belname.trim_start_matches("IOI_DDR[").trim_end_matches(']').parse().unwrap();
+                self.set_bits(bcrd, "ENABLE", &[true, true]);
+                self.set_enum(bcrd, "ALIGNMENT", "CLK1");
+                self.set_proginv(tcrd, &format!("IOI_IOCLK_OPTINV[{}]", 3 * k));
+            }
             other => return Err(format!("cell {}: type {other} not supported by the bitstream writer yet", c.name)),
         }
         Ok(())
@@ -641,6 +666,27 @@ impl<'a> Gen<'a> {
 
     /// Set raw bits `idx` of the switchbox mux driving the wire named `dst`
     /// in tile `tcrd` (defaults ISE writes for unused CMT inputs).
+    /// Turn on a programmable inverter (switchbox ProgInv) by its destination.
+    fn set_proginv(&mut self, tcrd: TileCoord, dst: &str) {
+        let tcls = &self.int.tile_classes[self.edev[tcrd].class];
+        let mut bits = vec![];
+        for (_, info) in &tcls.bels {
+            if let BelInfo::SwitchBox(sb) = info {
+                for item in &sb.items {
+                    if let SwitchBoxItem::ProgInv(pi) = item
+                        && pi.dst.to_string(self.int, tcls).ends_with(dst)
+                    {
+                        bits.push(pi.bit);
+                    }
+                }
+            }
+        }
+        assert!(!bits.is_empty(), "no programmable inverter for {dst}");
+        for b in bits {
+            self.set_tb(tcrd, b.bit, !b.inv);
+        }
+    }
+
     fn set_mux_bits_raw(&mut self, tcrd: TileCoord, dst: &str, idx: &[usize]) {
         let tcls = &self.int.tile_classes[self.edev[tcrd].class];
         let mut bits = vec![];
@@ -911,6 +957,29 @@ impl<'a> Gen<'a> {
             let b = cell.bel(self.slot("GLUTMASK_HCLK"));
             for f in ["FRAME21", "FRAME22", "FRAME24", "FRAME25"] {
                 self.set_bits(b, f, &[true]);
+            }
+        }
+        // An OLOGIC used as a DDR register (ODDR2): ISE also masks frame 28
+        // of its column region (GLUTMASK_HCLK.FRAME28). The clock column (CMT)
+        // has the bit but no GLUTMASK bel in prjcombine: set it in the
+        // region's HCLK bits directly (frame 18, bit 1 there, as ISE writes
+        // it; the column's frames are laid out differently).
+        let mut ddr_masked: HashSet<(usize, RowId)> = HashSet::new();
+        for c in cells.iter().filter(|c| c.typ == "OLOGIC") {
+            let (x, y, _) = c.bel;
+            ddr_masked.insert((x, self.edev.chip.row_hclk(RowId::from_idx(y))));
+        }
+        for (x, hrow) in ddr_masked {
+            let cell = CellCoord { die: DieId::from_idx(0), col: ColId::from_idx(x), row: hrow };
+            let b = cell.bel(self.slot("GLUTMASK_HCLK"));
+            if self.edev.has_bel(b) {
+                self.set_bits(b, "FRAME28", &[true]);
+            } else {
+                let pos = self.edev.btile_hclk(cell.col, hrow).xlat_pos_fwd((
+                    prjcombine_types::bitrect::RectFrameId::from_idx(18),
+                    prjcombine_types::bitrect::RectBitId::from_idx(1),
+                ));
+                self.set_pos(pos, true);
             }
         }
         // REG_BG in the CMT regulators, as ISE writes it: with a DCM or PLL
