@@ -1,20 +1,16 @@
-# Spartan-6 open-source P&R: chip database + nextpnr himbaechel uarch.
+# Spartan-6 open-source toolchain (xc6slx9): yosys -> nextpnr (himbaechel,
+# spartan6 uarch in nextpnr/) -> s6-bitgen, with an ISE cross-check.
 #
 #   make                 # chip database (build/chipdb-xc6slx9.bin) and nextpnr
 #   make check           # routing/bel sanity checks on the exported database
 #   make blinky          # synthesize, place and route tests/blinky for the Mojo V3
 #
-# nextpnr and prjcombine are pinned. nextpnr, with the spartan6 uarch, comes
-# from the fork's spartan6 branch and is cloned into build/nextpnr. To work on
-# the uarch, point NEXTPNR_SRC at your own checkout of that branch (built in
-# build/nextpnr-build-dev):
-#   make NEXTPNR_SRC=../nextpnr-fork pnr TEST=cylon
+# nextpnr is built from nextpnr/ (a git subtree of YosysHQ/nextpnr with the
+# spartan6 uarch); prjcombine is pinned.
 
 DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
-NEXTPNR_REPO   := https://github.com/ellisgl/nextpnr.git
-NEXTPNR_REV    := 16cb61d62832c60fa7833680422fa7f11309974e
 PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
@@ -24,47 +20,23 @@ SYNTH_FLAGS    ?=
 BUILD    := build
 EXPORTER := $(BUILD)/target/release/s6-export
 DB       := $(BUILD)/spartan6-$(PRJCOMBINE_REV).zstd
-NEXTPNR_SRC ?=
-ifeq ($(NEXTPNR_SRC),)
-NEXTPNR  := $(BUILD)/nextpnr
+NEXTPNR  := nextpnr
 NPNR_BLD := $(BUILD)/nextpnr-build
-NPNR_FETCHED := $(NEXTPNR)/.fetched-$(NEXTPNR_REV)
-else
-NEXTPNR  := $(NEXTPNR_SRC)
-NPNR_BLD := $(BUILD)/nextpnr-build-dev
-NPNR_FETCHED :=
-endif
 NPNR_BIN := $(NPNR_BLD)/nextpnr-himbaechel
 BBASM    := $(NPNR_BLD)/bba/bbasm
 CHIPDB   := $(BUILD)/chipdb-$(DEVICE).bin
 UARCH_DIR := $(NEXTPNR)/himbaechel/uarch/spartan6
-UARCH_SRC := $(wildcard $(UARCH_DIR)/*)
 
 all: $(CHIPDB) $(NPNR_BIN)
 
 # --- nextpnr ---------------------------------------------------------------
 
-ifeq ($(NEXTPNR_SRC),)
-# The stamp names the revision, so changing NEXTPNR_REV re-clones.
-$(NPNR_FETCHED):
-	rm -rf $(NEXTPNR) $(NPNR_BLD)
-	git init -q $(NEXTPNR)
-	git -C $(NEXTPNR) fetch -q --depth 1 $(NEXTPNR_REPO) $(NEXTPNR_REV)
-	git -C $(NEXTPNR) checkout -q FETCH_HEAD
-	test -f $(UARCH_DIR)/spartan6.cc
-	touch $@
-
-# .SECONDARY (below) would otherwise let make skip a missing stamp.
-.NOTINTERMEDIATE: $(NPNR_FETCHED)
-endif
-
-$(NPNR_BLD)/Makefile: $(NPNR_FETCHED)
+$(NPNR_BLD)/Makefile:
 	cmake -S $(NEXTPNR) -B $(NPNR_BLD) -DARCH=himbaechel -DHIMBAECHEL_UARCH=spartan6 \
 		-DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_PYTHON=OFF -DBUILD_TESTS=OFF
 
-# With NEXTPNR_SRC, any file in the checkout may change (not just the uarch),
-# so always let cmake decide.
-$(NPNR_BIN): $(NPNR_BLD)/Makefile $(UARCH_SRC) $(if $(NEXTPNR_SRC),FORCE)
+# Any file under nextpnr/ may change: let cmake decide what to rebuild.
+$(NPNR_BIN): $(NPNR_BLD)/Makefile FORCE
 	cmake --build $(NPNR_BLD) -j$(JOBS) --target nextpnr-himbaechel
 
 .PHONY: FORCE
@@ -91,7 +63,7 @@ $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)
 # The delay model (data/timing-xc6slx9-2.json) is committed; `make timing-data`
 # regenerates it with ISE.
 TIMING_DATA := data/timing-$(DEVICE)-2.json
-$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py gen/s6_timing.py $(NPNR_FETCHED) \
+$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py gen/s6_timing.py \
 		$(wildcard $(UARCH_DIR)/constids.inc) $(wildcard $(TIMING_DATA))
 	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@ \
 		$(if $(wildcard $(TIMING_DATA)),--timing $(TIMING_DATA))

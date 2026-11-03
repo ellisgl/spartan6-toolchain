@@ -1,52 +1,61 @@
-# xc6slx9-pnr
+# spartan6-toolchain
 
-Open-source place and route for the Spartan-6 xc6slx9 (Mojo V3, TQG144), as a
-nextpnr himbaechel uarch built on prjcombine. The plan is in
-[`Open-Source P&R for Spartan-6 (xc6slx9).md`](Open-Source%20P&R%20for%20Spartan-6%20(xc6slx9).md).
-
-## Status
-
-- **Chip database exporter (§1):** working. Slices are split into sub-bels
-  (see below).
-- **nextpnr uarch (§3–5):** lives in the nextpnr fork, branch
-  [`spartan6`](https://github.com/ellisgl/nextpnr/tree/spartan6/himbaechel/uarch/spartan6). first version. Blinky
-  (`tests/blinky`, Mojo V3 pinout) packs, places and routes. Clock routing
-  uses the dedicated BUFGMUX → GCLK → HCLK network.
-- **XDL writer (§6):** working. `s6-xdl` converts our packed, placed and
-  routed design into XDL with our routing as ISE pips. ISE only converts it,
-  checks it (`drc`: 0 errors on blinky and cylon) and runs `bitgen`; `par` is
-  not used. Converting ISE's result back to XDL gives back exactly our pips.
-  Cylon and Blinky with our own routing run correctly on the Mojo V3.
-  `XDL_MODE=pins` writes pins only and lets ISE route instead (stage 1).
-- **Bitstream writer (§7):** working. `s6-bitgen` generates the bitstream
-  from nextpnr's routed design using prjcombine's bit database. Its output is
-  byte-identical to ISE's bitgen for blinky, cylon, uart_echo and tristate.
-  The default flow (`make bit`) uses no ISE at all. `tests/uart_echo` and
-  `tests/tristate`, built this way, pass automatic hardware tests over the
-  Mojo's USB serial port (`tools/uart-test.py`, `tools/tristate-test.py`).
-
-## Pipeline
+An open-source FPGA toolchain for the Xilinx Spartan-6 xc6slx9 (developed on
+the Mojo V3, TQG144): Verilog to a bitstream with no vendor tools.
 
 ```
-prjcombine spartan6.zstd ──s6-export (Rust)──▶ xc6slx9.json ──s6_gen.py (Python)──▶ xc6slx9.bba
+Verilog ──yosys (synth_xilinx -family xc6s)──▶ netlist
+        ──nextpnr-himbaechel (spartan6 uarch)──▶ placed & routed design
+        ──s6-bitgen──▶ bitstream ──▶ FPGA (tools/mojo-load.py, or openFPGALoader)
 ```
 
-- `exporter/` (Rust): loads prjcombine's database, expands the device grid,
-  and writes tiles, wires, pips, bels, nodes and package pins as JSON.
-  prjcombine is pinned to `2b3317d`.
-- `gen/s6_gen.py`: builds the `.bba` with nextpnr's own `himbaechel_dbgen`,
-  so the layout always matches the nextpnr checkout.
-- `gen/check_db.py`: checks bel counts against the datasheet and searches the
-  routing graph for the connections Blinky needs.
+Every feature is cross-checked against ISE 14.7 (the same placement and
+routing written as XDL, converted and bitgen'd by ISE, must give a
+byte-identical bitstream) and tested on the board where it can be.
+
+## Layout
+
+| Directory | What |
+|---|---|
+| `nextpnr/` | nextpnr (git subtree of YosysHQ/nextpnr) with the Spartan-6 himbaechel uarch in `nextpnr/himbaechel/uarch/spartan6` (packing, placement rules, timing variants) |
+| `exporter/` | Rust tools over prjcombine's Spartan-6 database: `s6-export` (chip database JSON), `s6-bitgen` (bitstream writer), `s6-xdl` (XDL writer for the ISE cross-check), `s6-timing` (delay model fit) |
+| `gen/` | builds nextpnr's chip database (`.bba`) from the exported JSON, with the delay model |
+| `data/` | the fitted delay model (`timing-xc6slx9-2.json`) |
+| `tests/` | test designs (one directory each, with `pins.ucf`), `tests/common` (UART helpers) |
+| `tools/` | board loader, hardware test scripts, timing comparison, generators |
+| `docs/` | the original plan and upstream issue drafts |
+
+prjcombine (the Spartan-6 bit and routing database) is used as a pinned
+library, not vendored, except for a patched SDF parser in
+`exporter/vendor/prjcombine-re-sdf`.
+
+## Building and using
 
 ```
-make                    # build/chipdb-xc6slx9.bin and build/nextpnr-build/nextpnr-himbaechel
-make check              # chip database sanity checks
+make                        # nextpnr and the chip database
+make check                  # chip database sanity checks
 make pnr       TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
 make bit       TEST=cylon   # + s6-bitgen (no ISE)   -> build/cylon/design.bin
 make load      TEST=cylon   # + load into the Mojo's FPGA RAM
 make ise-check TEST=cylon   # ISE cross-check: XDL -> drc -> bitgen, must be byte-identical
 ```
+
+Your own design: put it in `tests/<name>/<name>.v` with a `pins.ucf`, or run
+the tools directly:
+
+```
+yosys -p "synth_xilinx -family xc6s -top top -json synth.json" top.v
+build/nextpnr-build/nextpnr-himbaechel --device xc6slx9-2tqg144 \
+    --chipdb build/chipdb-xc6slx9.bin --json synth.json -o ucf=pins.ucf --write routed.json
+build/target/release/s6-bitgen --db build/spartan6-*.zstd gen --routed routed.json \
+    --chipdb-json build/xc6slx9.json --out design.bin
+```
+
+Requires Rust 1.85+ (edition 2024), Python 3.10+, curl, CMake, a C++17
+compiler, Boost and Eigen (for nextpnr), and Yosys. Only `make ise-check` and
+`make timing-data` need ISE (see below).
+
+## Tests
 
 Hardware tests (load the design with `make load TEST=<name>` first; each
 talks to the Mojo over its USB serial port):
@@ -71,6 +80,7 @@ talks to the Mojo over its USB serial port):
 | `iddr` | `tools/iddr-test.py` | IDDR2: a pin driven from the fabric and read back on both clock edges |
 | `srlq31` | `tools/srlq31-test.py` | SRLC32E using both a Q tap and Q31 (cascade), 8 lanes |
 | `ram32` | `tools/ram32-test.py` | RAM32X1S and RAM32X1D (8 lanes each) with initial contents |
+| `dspcasc` | `tools/dspcasc-test.py` | DSP48A1 cascades: PCOUT -> PCIN, BCOUT -> BCIN, CARRYOUT -> CARRYIN over three DSPs |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -86,24 +96,6 @@ view of the device and builds prjcombine's naming database
 `tests/<name>/`, with pins from `tests/<name>/pins.ucf` or
 `tests/mojo_v3.ucf`.
 
-`make` clones nextpnr from the fork's `spartan6` branch, at the revision
-pinned in the Makefile (`NEXTPNR_REV`), into `build/nextpnr`. To work on the
-uarch, use your own checkout of that branch instead; it is built in
-`build/nextpnr-build-dev`:
-
-```
-make NEXTPNR_SRC=../nextpnr-fork pnr TEST=cylon
-```
-
-After pushing uarch changes, bump `NEXTPNR_REV`. To run nextpnr by hand:
-
-```
-build/nextpnr-build/nextpnr-himbaechel --device xc6slx9-2tqg144 \
-    --chipdb build/chipdb-xc6slx9.bin --json synth.json -o ucf=pins.ucf --write routed.json
-```
-
-Requires Rust 1.85+ (edition 2024), Python 3.10+, curl, CMake, a C++17
-compiler, Boost and Eigen (for nextpnr), and Yosys.
 
 ## ISE (for validation)
 
@@ -140,8 +132,9 @@ tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
 `mojo-load.py` speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
 
-openFPGALoader can do the same with the `mojov3` board from the fork's
-[`mojo-v3`](https://github.com/ellisgl/openFPGALoader/tree/mojo-v3) branch
+openFPGALoader can do the same with the `mojov3` board from the
+[`mojo-v3`](https://github.com/ellisgl/openFPGALoader/tree/mojo-v3) branch of
+ellisgl/openFPGALoader
 (.bin or .bit; RAM and flash both tested on hardware):
 
 ```
@@ -363,7 +356,7 @@ primary source is kept, as an always-on pip) and factory-test wires
   aren't clock-capable.
 - The xc6slx9 has no inverting pips.
 
-## The uarch (nextpnr fork, `himbaechel/uarch/spartan6`)
+## The uarch (`nextpnr/himbaechel/uarch/spartan6`)
 
 - **Device and pins:** parses the device (`xc6slx9[-speed]tqg144`), loads the
   chip database and reads a UCF subset (`-o ucf=`): LOC, IOSTANDARD, DRIVE,
@@ -387,6 +380,15 @@ primary source is kept, as an always-on pip) and factory-test wires
   (unused port, address bits below the width, data bits above it) are
   disconnected and used-but-undriven inputs tied low, as ISE does.
 - **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
+  Cascades: PCOUT -> PCIN, CARRYOUT -> CARRYIN, and a B bus fed by the
+  previous DSP's BCOUT (the dedicated BCIN, B_INPUT = CASCADE, as XST makes
+  it; B itself is still tied to ground, which ISE's DRC wants). They run on
+  hardwired wires to the DSP one site (4 rows) up, which prjcombine doesn't
+  model: the exporter adds the cascade pins and joins each DSP's outputs to
+  the next one's inputs as nodes, a chain is a cluster with each link 4 rows
+  above the last, and the XDL writer gives each cascade net ISE's one pip in
+  the lower DSP's tile. Cascade outputs reach only the next DSP (use
+  CARRYOUTF / P for the fabric), and cascade paths aren't timed yet.
 - **DCM DLL (CLK_FEEDBACK = 1X or 2X):** CLK0/90/180/270, CLK2X/CLK2X180 and
   CLKDV; the DLL bits as ISE sets them, and CLKDV_DIVIDE encoded as ISE
   does for all 22 legal values (checked against ISE for each). Fixed phase
@@ -459,7 +461,7 @@ primary source is kept, as an always-on pip) and factory-test wires
   (AX..DX) and each `<L>MUX` output carries one net (FF D, carry DI and
   carry-in, wide-mux selects, RAM data in; O5, 5FF Q, carry O/CO, wide-mux
   outputs). I/Os only go on bonded pads.
-- **router2 fixes (in the fork's core):** sink-wire reservation no longer
+- **router2 fixes (in nextpnr's core, `nextpnr/common/route/router2.cc`):** sink-wire reservation no longer
   takes another output pin of the driver's bel as a possible source, and
   treats a wire tied to a constant net's value as drivable.
 - **Constants:** GND/VCC are routed by router2 to any `TIE_0`/`TIE_1`/`CONST_*`
@@ -473,8 +475,7 @@ Packer limits for now:
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
-- **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
-  CARRYIN), DCM variable phase shift
+- **Not supported yet (packer errors out):** DCM variable phase shift
   (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE),
   PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
