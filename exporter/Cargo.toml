@@ -3,7 +3,7 @@ name = "s6-export"
 version = "0.1.0"
 edition = "2024"
 description = "Export a Spartan-6 device from the prjcombine database as JSON for the nextpnr himbaechel chipdb generator"
-license = "0BSD OR Apache-2.0"
+license = "ISC"
 
 # prjcombine is pinned to a known-good revision. Bump deliberately: the
 # database format and APIs change without notice.

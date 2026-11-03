@@ -523,3 +523,10 @@ Packer limits for now:
   grades get the same numbers).
 - **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
   future bitstream writer. The `.bba` doesn't carry it.
+
+## Licence
+
+ISC (see `LICENSE`). Third-party code keeps its own licence: nextpnr in
+`nextpnr/` (ISC, `nextpnr/COPYING`), and the patched prjcombine SDF parser in
+`exporter/vendor/prjcombine-re-sdf` (0BSD or Apache-2.0). prjcombine itself
+is used as a dependency (0BSD or Apache-2.0).
