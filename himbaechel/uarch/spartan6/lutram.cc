@@ -37,6 +37,7 @@ NEXTPNR_NAMESPACE_BEGIN
 //   RAM32M:   the whole slice; per letter bit 0 is the DI1 -> O5 half and
 //             bit 1 the DI2 -> O6 half (A6 tied high). RAMMODE RAM32.
 //   RAM64X1D, RAM128X1S/D, RAM256X1S: see "Wide RAMs" below.
+//   RAM32X1S/D: as RAM64X1S/D with the top address bit tied high.
 //   RAM64M:   the whole slice; per letter one 64-deep bit, DI1 -> O6.
 //             RAMMODE RAM64. (Both: letter x reads at ADDRx, all write at
 //             ADDRD, which is also the D LUT's read address.)
@@ -93,8 +94,18 @@ void Spartan6Impl::pack_lutram()
             ram128.push_back(ci);
         else if (ci->type.in(id_SRLC32E, id_SRL16E))
             srl.push_back(ci);
-        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D))
-            log_error("Cell %s: %s is not supported yet\n", ctx->nameOf(ci), ci->type.c_str(ctx));
+        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D)) {
+            // As the 64-deep RAM with the top address bit tied high (write
+            // and read addresses alike): the contents in the upper half.
+            bool dual = ci->type == id_RAM32X1D;
+            std::string init = init_bits(ci, id_INIT, 32); // MSB first
+            ci->params[id_INIT] = Property::from_string(init + std::string(32, '0'));
+            add_in(ci, id_A5, vcc);
+            if (dual)
+                add_in(ci, ctx->id("DPRA5"), vcc);
+            ci->type = dual ? id_RAM64X1D : id_RAM64X1S;
+            (dual ? ram128 : ram64).push_back(ci);
+        }
     }
 
     // Inverted write clock (the slice's CLKINV): CLK_INV on the LUT cells.

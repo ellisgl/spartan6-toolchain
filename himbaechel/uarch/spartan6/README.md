@@ -11,7 +11,7 @@ Spartan-6 database.
   LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), latches (LDCE/LDPE),
   falling-edge FFs/RAM/SRLs (slice clock inversion), CARRY4, MUXF7/MUXF8,
   RAMB16BWER/RAMB8BWER, DSP48A1, distributed RAM (RAM64X1S, RAM32M, RAM64M,
-  RAM64X1D, RAM128X1S/D, RAM256X1S), SRLC32E (including Q31 chains) and
+  RAM64X1D, RAM128X1S/D, RAM256X1S, RAM32X1S/D), SRLC32E (including Q31 chains) and
   SRL16E, ODDR2 and IDDR2 (DDR output / clock forwarding and DDR input, C1 = ~C0), I/O
   (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/25/18/15/12,
   PULLUP/PULLDOWN, DRIVE, SLEW), BUFG and the global clock network, DCM_SP
@@ -19,8 +19,7 @@ Spartan-6 database.
   PLL_BASE/PLL_ADV (INTERNAL; SYSTEM/SOURCE_SYNCHRONOUS with direct
   feedback, which becomes INTERNAL as in ISE's map, or feedback through a
   BUFG, which gets a BUFIO2FB reached through an unused ILOGIC).
-- **Not yet:** DSP cascades, RAM32X1S/D, DCM 2X
-  feedback and phase shifting. Global clock
+- **Not yet:** DSP cascades, DCM variable phase shift. Global clock
   nets stay on the clock network (pip flag 2). Timing comes from a delay model
   fitted to ISE's timing output (see the
   [xc6slx9-pnr](https://github.com/ellisgl/xc6slx9-pnr) README), within
