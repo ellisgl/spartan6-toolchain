@@ -129,10 +129,43 @@ void Spartan6Impl::pack_cmt()
                     log_error("PLL %s: CLKINSEL = 0 (CLKIN2) is not supported yet\n", ctx->nameOf(ci));
                 drop_port(ci, id_CLKINSEL);
             }
-            // Like ISE: a PLL clocked from a BUFG takes it on CLKIN2 (the
-            // global clock input); CLKIN1 is the BUFIO2 path from a pad.
+            // Compensation: with CLKFBOUT wired straight to CLKFBIN there is
+            // nothing to compensate, and ISE's map switches the PLL to
+            // INTERNAL; do the same. Feedback through a BUFG would need ISE's
+            // route through an ILOGIC site to a BUFIO2FB, which isn't modelled.
+            std::string comp = ci->params.count(ctx->id("COMPENSATION"))
+                                       ? ci->params.at(ctx->id("COMPENSATION")).as_string()
+                                       : std::string("SYSTEM_SYNCHRONOUS");
+            if (comp != "INTERNAL") {
+                NetInfo *fb = ci->getPort(ctx->id("CLKFBIN"));
+                if (fb && fb->driver.cell == ci && fb->driver.port == ctx->id("CLKFBOUT")) {
+                    log_info("PLL %s: COMPENSATION = %s with direct feedback becomes INTERNAL (as ISE's map does)\n",
+                             ctx->nameOf(ci), comp.c_str());
+                    ci->params[ctx->id("COMPENSATION")] = std::string("INTERNAL");
+                } else {
+                    log_error("PLL %s: COMPENSATION = %s with feedback through a BUFG is not supported yet "
+                              "(wire CLKFBOUT straight to CLKFBIN, or use COMPENSATION = \"INTERNAL\")\n",
+                              ctx->nameOf(ci), comp.c_str());
+                }
+            }
+            // Like ISE's map: a PLL clocked from a clock pad (through the BUFG
+            // yosys puts after it) takes it from the pad through an inserted
+            // BUFIO2 (divided-clock output); the placer picks CLKIN1 or CLKIN2,
+            // whichever it reaches. Otherwise a BUFG feeds CLKIN2 (the global
+            // clock input).
+            bypass_bufg(ctx, ci, id_CLKIN1);
             NetInfo *in = ci->getPort(id_CLKIN1);
-            if (in && in->driver.cell && in->driver.cell->type == id_BUFG) {
+            if (in && in->driver.cell && in->driver.cell->type == id_IOB) {
+                CellInfo *b = ctx->createCell(ctx->idf("%s$bufio2", ci->name.c_str(ctx)), id_BUFIO2);
+                b->addInput(id_I);
+                b->addOutput(id_DIVCLK_CMT);
+                b->connectPort(id_I, in);
+                NetInfo *o = ctx->createNet(ctx->idf("%s$bufio2_out", ci->name.c_str(ctx)));
+                b->connectPort(id_DIVCLK_CMT, o);
+                ci->disconnectPort(id_CLKIN1);
+                ci->connectPort(id_CLKIN1, o);
+                ci->params[id_CLKIN_SOURCE] = std::string("CLKIN1");
+            } else if (in && in->driver.cell && in->driver.cell->type == id_BUFG) {
                 ci->disconnectPort(id_CLKIN1);
                 ci->ports.erase(id_CLKIN1);
                 ci->ports[id_CLKIN2].name = id_CLKIN2;
@@ -190,7 +223,8 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         else if (c->type == id_BUFIO2 && usr.port == id_I)
             pins = {id_I};
         else if (c->type == id_PLL && usr.port.in(id_CLKIN1, id_CLKIN2))
-            pins = {usr.port};
+            pins = net->driver.cell && net->driver.cell->type == id_BUFIO2 ? std::vector<IdString>{id_CLKIN1, id_CLKIN2}
+                                                                           : std::vector<IdString>{usr.port};
         else
             continue;
         BelId best;
@@ -212,6 +246,15 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
             log_error("No %s site is reachable from %s for %s\n", c->type.c_str(ctx), from.c_str(), ctx->nameOf(c));
         if (c->type == id_BUFGMUX && best_pin == id_I1)
             c->renamePort(id_I0, id_I1);
+        if (c->type == id_PLL && best_pin != usr.port) {
+            NetInfo *n = c->getPort(usr.port);
+            c->disconnectPort(usr.port);
+            c->ports.erase(usr.port);
+            c->ports[best_pin].name = best_pin;
+            c->ports[best_pin].type = PORT_IN;
+            c->connectPort(best_pin, n);
+            c->params[id_CLKIN_SOURCE] = best_pin.str(ctx);
+        }
         c->attrs[id_BEL] = ctx->getBelName(best).str(ctx);
         used_clock_bels.insert(best);
         log_info("    %s -> %s.%s (from %s)\n", ctx->nameOf(c), ctx->nameOfBel(best), best_pin.c_str(ctx),
