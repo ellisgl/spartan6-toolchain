@@ -655,7 +655,7 @@ impl<'a> Gen<'a> {
         }
     }
 
-    /// Clock management: DCM (frequency synthesis only so far), PLL, BUFIO2.
+    /// Clock management: DCM, PLL, BUFIO2, BUFIO2FB.
     /// Values are as ISE 14.7 bitgen writes them; the PLL loop settings come
     /// from the PLL_MULT table (BANDWIDTH OPTIMIZED = the HIGH column).
     fn cmt_config(&mut self, c: &NCell, cell: CellCoord) -> Result<(), String> {
@@ -692,7 +692,6 @@ impl<'a> Gen<'a> {
                 }
                 for (attr, ok) in [
                     ("DLL_FREQUENCY_MODE", "LOW"),
-                    ("CLKOUT_PHASE_SHIFT", "NONE"),
                     ("DUTY_CYCLE_CORRECTION", "TRUE"),
                 ] {
                     if let Some(v) = p(attr)
@@ -702,6 +701,10 @@ impl<'a> Gen<'a> {
                     }
                 }
                 let dll = feedback == "1X";
+                let phase_mode = p("CLKOUT_PHASE_SHIFT").unwrap_or("NONE".into());
+                if !matches!(phase_mode.as_str(), "NONE" | "FIXED") {
+                    return Err(format!("{}: DCM CLKOUT_PHASE_SHIFT = {phase_mode} is not supported yet (NONE or FIXED)", c.name));
+                }
                 // ISE's register blocks first: some of their bits are the same
                 // bits as the fields below (CLKFX_*, DESKEW_ADJUST, ...), which
                 // must win.
@@ -725,7 +728,7 @@ impl<'a> Gen<'a> {
                 };
                 self.set_raw_num(bcrd, "DESKEW_ADJUST", deskew);
                 for (attr, v) in [
-                    ("CLKFXDV_DIVIDE", 3u64), ("CLKIN_CLKFB_ENABLE", 1), ("CLKOUT_PHASE_SHIFT", 1), ("DFS_ENABLE", 1),
+                    ("CLKFXDV_DIVIDE", 3u64), ("CLKIN_CLKFB_ENABLE", 1),
                     ("DUTY_CYCLE_CORRECTION", 1), ("REG_DFS_C", 5), ("SPREAD_SPECTRUM", 0x7f),
                 ] {
                     self.set_raw_num(bcrd, attr, v);
@@ -750,6 +753,20 @@ impl<'a> Gen<'a> {
                 ] {
                     self.set_raw_num(bcrd, attr, v);
                 }
+                // Fixed phase shift (1/256 of the period, -255 .. 255), as ISE
+                // encodes it: twice the magnitude plus a sign bit; from 128 on
+                // it wraps to the equivalent shift the other way.
+                self.set_raw_num(bcrd, "CLKOUT_PHASE_SHIFT", if phase_mode == "FIXED" { 3 } else { 1 });
+                if phase_mode == "FIXED" {
+                    let v = num("PHASE_SHIFT", 0) as u32 as i32 as i64;
+                    if !(-255..=255).contains(&v) {
+                        return Err(format!("{}: DCM PHASE_SHIFT = {v} is out of range (-255 .. 255)", c.name));
+                    }
+                    let a = v.unsigned_abs();
+                    let (field, neg) = if a < 128 { (2 * a, v < 0) } else { (2 * (256 - a) - 1, v > 0) };
+                    self.set_raw_num(bcrd, "PHASE_SHIFT", field);
+                    self.set_raw_num(bcrd, "PHASE_SHIFT_NEGATIVE", neg as u64);
+                }
                 if dll {
                     // DLL in use (CLK0 fed back): as ISE sets it.
                     for attr in ["DLL_ENABLE", "DFS_FEEDBACK", "CLKIN_IOB"] {
@@ -760,8 +777,14 @@ impl<'a> Gen<'a> {
                 } else {
                     self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 1);
                 }
-                if used.contains(&"CLKFX") || used.contains(&"CLKFX180") {
-                    self.set_raw_num(bcrd, "OUT_CLKFX_ENABLE", 1);
+                // The frequency synthesizer only when CLKFX/CLKFX180 is used (ISE
+                // clears these otherwise; some share bits with REG_DFS_S's
+                // defaults, written above).
+                let dfs = used.contains(&"CLKFX") || used.contains(&"CLKFX180");
+                self.set_raw_num(bcrd, "DFS_ENABLE", dfs as u64);
+                self.set_raw_num(bcrd, "OUT_CLKFX_ENABLE", dfs as u64);
+                if !dfs {
+                    self.set_raw_num(bcrd, "DFS_FEEDBACK", 0);
                 }
                 for out in ["CLK0", "CLK90", "CLK180", "CLK270", "CLK2X", "CLK2X180", "CLKDV"] {
                     if used.contains(&out) {

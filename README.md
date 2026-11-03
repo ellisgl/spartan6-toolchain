@@ -65,6 +65,7 @@ talks to the Mojo over its USB serial port):
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
 | `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
+| `phase` | `tools/phase-test.py` | DCM fixed phase shift +-90 and +-135 degrees (sampled on the board clock) |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -379,7 +380,11 @@ primary source is kept, as an always-on pip) and factory-test wires
 - **DSP (`dsp.cc`):** DSP48A1 with every input connected (open ones tied).
 - **DCM DLL (CLK_FEEDBACK = 1X):** CLK0/90/180/270, CLK2X/CLK2X180 and
   CLKDV; the DLL bits as ISE sets them, and CLKDV_DIVIDE encoded as ISE
-  does for all 22 legal values (checked against ISE for each). REG_BG in the
+  does for all 22 legal values (checked against ISE for each). Fixed phase
+  shift (CLKOUT_PHASE_SHIFT = FIXED, PHASE_SHIFT -255 .. 255): twice the
+  magnitude plus a sign bit, wrapping to the equivalent shift the other way
+  from 128 on (checked against ISE at 15 values). The frequency synthesizer
+  is enabled only when CLKFX/CLKFX180 is used. REG_BG in the
   CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
   tiles.
 - **Global clocks stay on the clock network:** pips from general routing
@@ -457,7 +462,8 @@ Packer limits for now:
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
   CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
   uses RAM32M instead), DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
-  phase shifting (CLKOUT_PHASE_SHIFT, PSDONE) and duty-cycle correction off,
+  variable phase shift (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE) and
+  duty-cycle correction off,
   PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).

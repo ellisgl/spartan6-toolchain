@@ -816,7 +816,8 @@ fn main() {
                         cfg.push(kv("CLKFX_DIVIDE", num("CLKFX_DIVIDE", 1).to_string()));
                         cfg.push(kv("CLKFX_MULTIPLY", num("CLKFX_MULTIPLY", 4).to_string()));
                         cfg.push(kv("CLKIN_PERIOD", format!("{:.6}", real("CLKIN_PERIOD", 10.0))));
-                        cfg.push(kv("PHASE_SHIFT", num("PHASE_SHIFT", 0).to_string()));
+                        // Signed (yosys passes the 32-bit two's complement).
+                        cfg.push(kv("PHASE_SHIFT", (num("PHASE_SHIFT", 0) as u32 as i32).to_string()));
                         ("DCM", cfg)
                     }
                     "PLL" => {
