@@ -1,0 +1,774 @@
+/*
+ *  nextpnr -- Next Generation Place and Route
+ *
+ *  Copyright (C) 2021-22  gatecat <gatecat@ds0.me>
+ *
+ *  Permission to use, copy, modify, and/or distribute this software for any
+ *  purpose with or without fee is hereby granted, provided that the above
+ *  copyright notice and this permission notice appear in all copies.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ *  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ *  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ *  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ *  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ *  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ *
+ */
+
+#include "fabric_parsing.h"
+#include "log.h"
+#include "nextpnr.h"
+#include "util.h"
+#include "viaduct_api.h"
+#include "viaduct_helpers.h"
+
+#include <fstream>
+
+#define GEN_INIT_CONSTIDS
+#define VIADUCT_CONSTIDS "viaduct/fabulous/constids.inc"
+#include "viaduct_constids.h"
+
+#include "bel_timing.h"
+#include "fab_cfg.h"
+#include "fab_defs.h"
+#include "fasm.h"
+#include "pack.h"
+#include "pcf.h"
+#include "validity_check.h"
+
+#include <filesystem>
+
+NEXTPNR_NAMESPACE_BEGIN
+
+namespace {
+
+struct FabulousImpl : ViaductAPI
+{
+    FabulousImpl(const dict<std::string, std::string> &args)
+    {
+        for (auto a : args) {
+            if (a.first == "fasm")
+                fasm_file = a.second;
+            else if (a.first == "lut_k")
+                cfg.clb.lut_k = std::stoi(a.second);
+            else if (a.first == "pcf")
+                pcf_file = a.second;
+            else if (a.first == "corner")
+                corner = a.second;
+            else
+                log_error("unrecognised fabulous option '%s'\n", a.first.c_str());
+        }
+    }
+
+    ~FabulousImpl() {};
+    void init(Context *ctx) override
+    {
+        init_uarch_constids(ctx);
+        ViaductAPI::init(ctx);
+        h.init(ctx);
+        fab_root = get_env_var("FAB_ROOT", ", set it to the fabulous build output or project path");
+        if (!std::filesystem::exists(fab_root + "/.FABulous"))
+            log_error("no .FABulous directory in '%s'; FABulous 1.0 projects are no longer supported, regenerate "
+                      "the fabric with a current FABulous or use nextpnr 0.11.1 or older\n",
+                      fab_root.c_str());
+        init_default_ctrlset_cfg();
+        // To consider: a faster serialised form of the device data (like bba that other arches use) so we don't have to
+        // go through the whole csv parsing malarkey each time
+        blk_trk = std::make_unique<BlockTracker>(ctx, cfg);
+        bool has_v3 = std::filesystem::exists(fab_root + "/.FABulous/bel.v3.txt");
+        // bel.v3.txt and placement_estimate.txt are generated together; having
+        // only one means a stale/partial .FABulous dir, so warn.
+        bool has_estimate = std::filesystem::exists(fab_root + "/.FABulous/placement_estimate.txt");
+        if (has_v3 != has_estimate)
+            log_warning("only one of bel.v3.txt / placement_estimate.txt is present; regenerate both with "
+                        "gen_model_npnr\n");
+        // placement_estimate.txt provides these tunables; each falls back to
+        // nextpnr's historical hardcoded default when the file/key is absent
+        // (legacy or unregenerated projects), so behaviour is unchanged without it.
+        // delayScale/Offset are FABulous's precomputed average pip delay.
+        dict<std::string, double> pe;
+        read_placement_estimate(pe);
+        pool<std::string> known_keys;
+        auto pe_or = [&](const char *key, double def) {
+            known_keys.insert(key);
+            if (!pe.count(key)) {
+                log_info("placement_estimate.txt: no value for '%s', using default %g\n", key, def);
+                return def;
+            }
+            return pe.at(key);
+        };
+        double delay_scale = pe_or("delayScale", 3.0);
+        double delay_offset = pe_or("delayOffset", 3.0);
+        ctx->setDelayScaling(delay_scale, delay_offset);
+        carry_predict_delay = pe_or("carryPredictDelay", 0.5);
+        ctx->delay_epsilon = pe_or("delayEpsilon", 0.25);
+        ctx->ripup_penalty = pe_or("ripupPenalty", 0.5);
+        // nanoseconds per unit of the pips file's integer delay column
+        double pip_delay_scale = pe_or("pipDelayScale", 0.05);
+        for (auto &kv : pe)
+            if (!known_keys.count(kv.first))
+                log_warning("unknown placement_estimate.txt key '%s' ignored\n", kv.first.c_str());
+        init_bels_v2(has_v3 ? "/.FABulous/bel.v3.txt" // same parser; v3 adds timing lines
+                            : "/.FABulous/bel.v2.txt",
+                     has_v3);
+        init_pips(pip_delay_scale);
+        init_pseudo_constant_wires();
+        setup_lut_permutation();
+        seed_default_estimates();
+    }
+
+    void init_default_ctrlset_cfg()
+    {
+        // TODO: loading from file or something
+        uint64_t default_routing = (1ULL << (cfg.clb.lc_per_clb * cfg.clb.ff_per_lc)) - 1;
+        auto setup_cfg = [&](ControlSetConfig &ctrl, ControlSetConfig::MaskType mask) {
+            ctrl.routing.clear();
+            ctrl.routing.push_back(default_routing);
+            ctrl.can_mask = mask;
+            ctrl.can_invert = false;
+        };
+
+        setup_cfg(cfg.clb.clk, ControlSetConfig::MaskType::MASK_NONE); // clk can not be masked
+        setup_cfg(cfg.clb.en, ControlSetConfig::MaskType::MASK_ONE);   // en can be masked with 1
+        setup_cfg(cfg.clb.sr, ControlSetConfig::MaskType::MASK_ZERO);  // sr can be masked with 0
+    }
+
+    // prePlace: give every cell its per-type timing estimate (from
+    // placement_estimate.txt or the built-in defaults), so the placer has
+    // timing to optimise against. postPlace replaces it per instance.
+    void apply_preplace_timing_estimates(Context *ctx)
+    {
+        for (auto &cell : ctx->cells) {
+            CellInfo *ci = cell.second.get();
+            auto est = estimate_by_type.find(ci->type);
+            if (est == estimate_by_type.end())
+                continue;
+            for (const auto &arc : est->second)
+                apply_arc(ctx, ci, arc);
+        }
+    }
+
+    // nextpnr's historical hardcoded dummy timings, seeded for any cell type
+    // placement_estimate.txt doesn't describe (equivalent to a file containing
+    // e.g. "Delay,I0,O,3.0,FF=0").
+    void seed_default_estimates()
+    {
+        const TimingPredicate ff{TimingPredicate::PARAM, id_FF, true, {}};
+        const TimingPredicate no_ff{TimingPredicate::PARAM, id_FF, false, {}};
+        const TimingPredicate i0mux{TimingPredicate::PARAM, id_I0MUX, true, {}};
+        const TimingPredicate carry{TimingPredicate::PORT_ANY_CONNECTED, IdString(), true, {id_Ci, id_Co}};
+        if (!estimate_by_type.count(id_FABULOUS_LC)) {
+            auto &lc = estimate_by_type[id_FABULOUS_LC];
+            lc = {
+                    {BelTimingArc::CLOCK, id_CLK, IdString(), 0, 0, {ff}},
+                    {BelTimingArc::CLK2OUT, id_Q, id_CLK, 1.0, 0, {ff}},
+                    {BelTimingArc::DELAY, id_Ci, id_Co, 0.2, 0, {carry}},
+                    {BelTimingArc::DELAY, ctx->id("I1"), id_Co, 1.0, 0, {carry}},
+                    {BelTimingArc::DELAY, ctx->id("I2"), id_Co, 1.0, 0, {carry}},
+                    {BelTimingArc::DELAY, id_Ci, id_O, 3.0, 0, {no_ff, i0mux}},
+                    {BelTimingArc::SETUPHOLD, id_Ci, id_CLK, 2.5, 0.1, {ff, i0mux}},
+            };
+            for (unsigned i = 0; i < cfg.clb.lut_k; i++) {
+                IdString in = ctx->idf("I%d", i);
+                lc.push_back({BelTimingArc::DELAY, in, id_O, 3.0, 0, {no_ff}});
+                lc.push_back({BelTimingArc::SETUPHOLD, in, id_CLK, 2.5, 0.1, {ff}});
+            }
+        }
+        for (IdString t : {id_OutPass4_frame_config, id_OutPass4_frame_config_mux})
+            if (!estimate_by_type.count(t))
+                for (unsigned i = 0; i < 4; i++)
+                    estimate_by_type[t].push_back({BelTimingArc::SETUPHOLD, ctx->idf("I%d", i), id_CLK, 2.5, 0.1, {}});
+        for (IdString t : {id_InPass4_frame_config, id_InPass4_frame_config_mux})
+            if (!estimate_by_type.count(t))
+                for (unsigned i = 0; i < 4; i++)
+                    estimate_by_type[t].push_back({BelTimingArc::CLK2OUT, ctx->idf("O%d", i), id_CLK, 2.5, 0, {}});
+    }
+
+    void pack() override
+    {
+        if (!pcf_file.empty())
+            fabulous_pcf(ctx, pcf_file);
+        else
+            log_info("No PCF file specified, skipping constraints application.\n");
+        fabulous_pack(ctx, cfg);
+    }
+
+    void postRoute() override
+    {
+        if (!fasm_file.empty())
+            fabulous_write_fasm(ctx, cfg, pp_tags, fasm_file);
+    }
+
+    void prePlace() override
+    {
+        assign_cell_info();
+        apply_preplace_timing_estimates(ctx);
+    }
+
+    void postPlace() override
+    {
+        if (!bel_timing_by_bel.empty())
+            apply_bel_timing_per_instance(ctx);
+        if (ctx->debug) {
+            log_info("================== Final Placement ==================\n");
+            for (auto &cell : ctx->cells) {
+                auto ci = cell.second.get();
+                if (ci->bel != BelId()) {
+                    log_info("%s: %s\n", ctx->nameOfBel(ci->bel), ctx->nameOf(ci));
+                    if (ctx->getBelType(ci->bel).in(id_FABULOUS_LC)) {
+                        for (IdString port : {id_CLK, id_SR, id_EN}) {
+                            if (ci->ports.count(port)) {
+                                WireId wire = ctx->getBelPinWire(ci->bel, port);
+                                PortInfo pi = ci->ports[port];
+                                if (pi.net) {
+                                    log_info("- %s/%s: %s\n", ctx->getWireName(wire)[0].c_str(ctx),
+                                             ctx->getWireName(wire)[1].c_str(ctx), pi.net->name.c_str(ctx));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    log_info("unknown: %s\n", ctx->nameOf(ci));
+                }
+            }
+            log_break();
+        }
+    }
+
+    bool isBelLocationValid(BelId bel, bool explain_invalid) const override
+    {
+        return blk_trk->check_validity(bel, cfg, cell_tags, explain_invalid);
+    }
+
+  private:
+    FabricConfig cfg; // TODO: non-default config
+    ViaductHelpers h;
+
+    std::string fasm_file;
+
+    std::string pcf_file;
+
+    std::string corner;
+
+    std::unique_ptr<BlockTracker> blk_trk;
+
+    std::string get_env_var(const std::string &name, const std::string &prompt = "")
+    {
+        const char *var = getenv(name.c_str());
+        if (var == nullptr)
+            log_error("environment variable '%s' is not set%s\n", name.c_str(), prompt.c_str());
+        return std::string(var);
+    }
+
+    std::ifstream open_data_rel(const std::string &postfix)
+    {
+        const std::string filename(fab_root + postfix);
+        return open_ifstream_and_log_error(filename, "data file (is FAB_ROOT set correctly?)");
+    }
+
+    // Reads `.FABulous/placement_estimate.txt`: numeric `key=value` tunables (see
+    // init() for the keys) into `vals`, plus optional BEL-file-format timing lines
+    // describing one representative BEL per type into `estimate_by_type` (the
+    // prePlace estimate; see apply_preplace_timing_estimates). Timing lines are
+    // scoped to a type by `BelBegin,<type>` ... `BelEnd` blocks. Missing
+    // keys/lines/file leave init()'s defaults.
+    void read_placement_estimate(dict<std::string, double> &vals)
+    {
+        std::string path = fab_root + "/.FABulous/placement_estimate.txt";
+        if (!std::filesystem::exists(path))
+            return;
+        std::ifstream in(path);
+        CsvParser csv(in);
+        IdString curr_type;
+        while (csv.fetch_next_line()) {
+            parser_view first = csv.next_field();
+            IdString cmd = first.to_id(ctx);
+            if (cmd == id_BelBegin) {
+                curr_type = csv.next_field().to_id(ctx);
+                if (curr_type == IdString())
+                    log_error("placement_estimate.txt: BelBegin without a bel type\n");
+                continue;
+            }
+            if (cmd == id_BelEnd) {
+                curr_type = IdString();
+                continue;
+            }
+            if (cmd.in(id_Delay, id_SetupHold, id_ClkToOut, id_Clock)) {
+                if (curr_type == IdString())
+                    log_error("placement_estimate.txt: timing command %s outside a BelBegin/BelEnd block\n",
+                              cmd.c_str(ctx));
+                estimate_by_type[curr_type].push_back(parse_one_arc(ctx, csv, cmd));
+                continue;
+            }
+            // otherwise a numeric `key=value` line; strip() tolerates whitespace
+            // around '=' (e.g. "key = value")
+            if (first.find('=') == parser_view::npos)
+                log_error("placement_estimate.txt: unsupported line starting with '%s'\n", cmd.c_str(ctx));
+            auto kv = first.split('=');
+            parser_view key_v = kv.first.strip();
+            parser_view value_v = kv.second.strip();
+            std::string key(key_v.m_ptr, key_v.m_length);
+            vals[key] = parse_double(value_v);
+        }
+    }
+
+    // Representative per-cell-type prePlace estimates from placement_estimate.txt;
+    // empty unless the file provides them (see update_cell_timing).
+    dict<IdString, std::vector<BelTimingArc>> estimate_by_type;
+
+    std::string fab_root;
+
+    // predictDelay's Co->Ci carry-chain estimate; set from placement_estimate.txt
+    // in init(), default 0.5 (the old hardcoded value).
+    double carry_predict_delay = 0.5;
+
+    // cell types already warned about having no applicable bel.v3 timing arc
+    pool<IdString> warned_untimed;
+
+    std::vector<PseudoPipTags> pp_tags;
+
+    void add_pseudo_pip(WireId src, WireId dst, IdString pip_type, float delay = 1.0,
+                        PseudoPipTags tags = PseudoPipTags())
+    {
+        const auto &src_data = ctx->wire_info(src);
+        IdStringList pip_name = IdStringList::concat(ctx->getWireName(src), ctx->getWireName(dst));
+        PipId idx =
+                ctx->addPip(pip_name, pip_type, src, dst, ctx->getDelayFromNS(delay), Loc(src_data.x, src_data.y, 0));
+        if (idx.index >= int(pp_tags.size()))
+            pp_tags.resize(idx.index + 1);
+        pp_tags.at(idx.index) = tags;
+    }
+
+    void init_global_clock()
+    {
+        // TODO: how do we extend this to more complex clocking topologies?
+        auto found = ctx->wire_by_name.find(IdStringList::concat(ctx->id("X0Y0"), id_CLK));
+        if (found != ctx->wire_by_name.end()) {
+            BelId global_clk_bel = ctx->addBel(IdStringList::concat(ctx->id("X0Y0"), id_CLK), id_Global_Clock,
+                                               Loc(0, 0, 0), true, false);
+            ctx->addBelOutput(global_clk_bel, id_CLK, global_clock_wire());
+        }
+    }
+
+    // TODO: multi-clock will need one root per domain.
+    WireId global_clock_wire() { return get_wire(ctx->id("X0Y0"), id_CLK, id_CLK); }
+
+    // Clock arrival time (ns) for a bel whose GlobalClk line carries none.
+    static constexpr float default_clock_delay = 1.0;
+
+    // `delay` is this flop's clock arrival time; only differences between flops
+    // produce skew, a uniform value cancels out. Default for bel.v2, which
+    // carries no arrival time.
+    void add_global_clock_pip(WireId clk_wire, float delay = default_clock_delay)
+    {
+        add_pseudo_pip(global_clock_wire(), clk_wire, id_global_clock, delay);
+    }
+
+    // Reads both bel.v2.txt and bel.v3.txt
+    void init_bels_v2(const std::string &filename, bool has_timing)
+    {
+        // Either all clock pins should have an arrival time, or none.
+        int clk_pins = 0, clk_pins_untimed = 0;
+        BelId first_untimed;
+        log_info("Reading BELs file: %s\n", filename.c_str());
+        std::ifstream in = open_data_rel(filename);
+        CsvParser csv(in);
+        BelId curr_bel;
+        while (csv.fetch_next_line()) {
+            IdString cmd = csv.next_field().to_id(ctx);
+            if (cmd == id_BelBegin) {
+                IdString tile = csv.next_field().to_id(ctx);
+                auto bel_idx = csv.next_field();
+                IdString bel_type = csv.next_field().to_id(ctx);
+                NPNR_ASSERT(bel_idx.size() == 1);
+                int bel_z = bel_idx[0] - 'A';
+                NPNR_ASSERT(bel_z >= 0 && bel_z < 26);
+                IdString bel_name = bel_idx.to_id(ctx);
+                if (bel_type.in(id_InPass4_frame_config, id_OutPass4_frame_config, id_InPass4_frame_config_mux,
+                                id_OutPass4_frame_config_mux)) {
+                    // Assign BRAM IO a nicer name than just a letter
+                    auto prefix = csv.next_field();
+                    if (prefix.empty()) {
+                        log_error("Bel definition missing field; please update FABulous!\n");
+                    }
+                    bel_name = prefix.rsplit('_').first.to_id(ctx);
+                }
+                Loc loc = tile_loc(tile);
+                curr_bel = ctx->addBel(IdStringList::concat(tile, bel_name), bel_type, Loc(loc.x, loc.y, bel_z), false,
+                                       false);
+
+                // add FABULOUS_LC to the block tracker to check the control set
+                if (bel_type.in(id_FABULOUS_LC)) {
+                    blk_trk->set_bel_type(curr_bel, BelFlags::BLOCK_CLB, BelFlags::FUNC_LC_COMB, bel_z);
+                }
+            } else if (cmd.in(id_I, id_O)) {
+                IdString port = csv.next_field().to_id(ctx);
+                auto wire_name = csv.next_field().split('.');
+                WireId wire =
+                        get_wire(wire_name.first.to_id(ctx), wire_name.second.to_id(ctx), wire_name.second.to_id(ctx));
+                ctx->addBelPin(curr_bel, port, wire, cmd == id_O ? PORT_OUT : PORT_IN);
+            } else if (cmd == id_GlobalClk) {
+                IdStringList bel_name = ctx->getBelName(curr_bel);
+                WireId clk_wire = get_wire(bel_name[0], ctx->idf("%s_CLK", bel_name[1].c_str(ctx)), id_REG_CLK);
+                ctx->addBelInput(curr_bel, id_CLK, clk_wire);
+                // per-flop clock arrival time (ns); bel.v2 has no delay field
+                parser_view clk_delay = csv.next_field();
+                ++clk_pins;
+                if (clk_delay.empty()) {
+                    if (clk_pins_untimed++ == 0)
+                        first_untimed = curr_bel;
+                    add_global_clock_pip(clk_wire);
+                } else {
+                    add_global_clock_pip(clk_wire, parse_float(clk_delay));
+                }
+            } else if (cmd == id_CFG) {
+                // TODO...
+            } else if (cmd.in(id_Delay, id_SetupHold, id_ClkToOut, id_Clock)) {
+                if (curr_bel == BelId())
+                    log_error("timing command %s outside a BelBegin/BelEnd block\n", cmd.c_str(ctx));
+                bel_timing_by_bel[curr_bel].push_back(parse_one_arc(ctx, csv, cmd));
+            } else if (cmd == id_BelEnd) {
+                curr_bel = BelId();
+            } else if (cmd != IdString()) {
+                log_error("unsupported command %s in definition of bel %s\n", cmd.c_str(ctx),
+                          curr_bel == BelId() ? "<none>" : ctx->nameOfBel(curr_bel));
+            }
+        }
+        if (has_timing && clk_pins_untimed > 0)
+            log_warning("%s: %d of %d clock pins have no arrival time and fall back to %.2f ns; that shows up as "
+                        "clock skew against the timed ones (e.g. %s)\n",
+                        filename.c_str(), clk_pins_untimed, clk_pins, default_clock_delay,
+                        ctx->nameOfBel(first_untimed));
+        init_global_clock();
+        postprocess_bels();
+    }
+
+    // bel.v3 timing arcs, keyed by physical BEL. Empty for v1/v2 projects.
+    // postPlace applies each placed cell its own BEL's arcs (per-instance).
+    dict<BelId, std::vector<BelTimingArc>> bel_timing_by_bel;
+
+    // postPlace: replace each placed cell's timing with its BEL's own arcs.
+    void apply_bel_timing_per_instance(Context *ctx)
+    {
+        for (auto &cell : ctx->cells) {
+            CellInfo *ci = cell.second.get();
+            if (ci->bel == BelId())
+                continue;
+            auto fnd = bel_timing_by_bel.find(ci->bel);
+            if (fnd == bel_timing_by_bel.end())
+                continue;
+            std::vector<const BelTimingArc *> matching;
+            for (const auto &arc : fnd->second)
+                if (timing_cond_holds(ci, arc.cond))
+                    matching.push_back(&arc);
+            // If no arc condition holds the cell would end up with no timing at
+            // all; likely a broken condition in bel.v3.txt, so warn and keep the
+            // prePlace per-type estimate instead.
+            if (matching.empty()) {
+                if (warned_untimed.insert(ci->type).second)
+                    log_warning("no bel.v3 timing arc applies to '%s' (type %s); keeping prePlace estimate\n",
+                                ctx->nameOf(ci), ci->type.c_str(ctx));
+                continue;
+            }
+            // SetupHold/ClockToOut *append* their arcs, so clear the prePlace
+            // per-type timing first or register arcs would double-register.
+            ctx->cellTiming.erase(ci->name);
+            for (const auto *arc : matching)
+                apply_arc(ctx, ci, *arc);
+        }
+    }
+
+    void generate_split_mux8(BelId bel)
+    {
+        // _don't_ take a reference here because it might be invalidated by adding bels
+        auto data = ctx->bel_info(bel);
+        const std::array<IdString, 4> mux_outs{id_M_AB, id_M_AD, id_M_EF, id_M_AH};
+        for (unsigned k = 1; k <= 3; k++) {
+            // create MUX2 through 8
+            unsigned m = (1U << k);
+            for (unsigned i = 0; i < 8; i += m) {
+                // mux indexing scheme
+                //  - MUX2s are at (z % 2) == 0
+                //  - MUX4s are at (z % 4) == 1
+                //  - MUX8s are at (z % 8) == 7
+                int idx = (m == 2) ? i : (m == 4) ? (i + 1) : (i + 7);
+                BelId mux =
+                        ctx->addBel(IdStringList::concat(data.name[0], ctx->idf("MUX%d_%d", m, i)),
+                                    ctx->idf("FABULOUS_MUX%d", m), Loc(data.x, data.y, data.z + 1 + idx), false, false);
+                blk_trk->set_bel_type(mux, BelFlags::BLOCK_CLB, BelFlags::FUNC_MUX, idx);
+                // M data inputs
+                for (unsigned j = 0; j < m; j++) {
+                    ctx->addBelInput(mux, ctx->idf("I%d", j), data.pins.at(ctx->idf("%c", char('A' + i + j))).wire);
+                }
+                // K select inputs
+                for (unsigned j = 0; j < k; j++) {
+                    ctx->addBelInput(mux, ctx->idf("S%d", j),
+                                     data.pins.at(ctx->idf("S%d", (m == 8 && j == 2) ? 3 : ((i / m) * k + j))).wire);
+                }
+                // Output
+                IdString output = (m == 2)   ? mux_outs.at(i / m)
+                                  : (m == 4) ? mux_outs.at((i / m) * k + 1)
+                                             : mux_outs.at(3);
+                ctx->addBelOutput(mux, id_O, data.pins.at(output).wire);
+            }
+        }
+    }
+
+    void postprocess_bels()
+    {
+        // This does some post-processing on bels to make them useful for nextpnr place-and-route regardless of the code
+        // path that creates them. In the future, splitting muxes and creating split LCs would be done here, too
+        for (auto bel : ctx->getBels()) {
+            // _don't_ take a reference here because it might be invalidated by adding bels
+            auto data = ctx->bel_info(bel);
+            if (data.type == id_FABULOUS_LC) {
+                if (!data.pins.count(id_Q)) {
+                    // Add a Q pseudo-pin and pseudo-pip from Q to O
+                    WireId o_wire = ctx->getBelPinWire(bel, id_O);
+                    IdString q_name = ctx->idf("%s_Q", data.name[1].c_str(ctx));
+                    WireId q_wire = get_wire(data.name[0], q_name, q_name);
+                    ctx->addBelOutput(bel, id_Q, q_wire);
+                    // Pseudo-pip for FF mode
+                    add_pseudo_pip(q_wire, o_wire, id_O2Q);
+                }
+            } else if (data.type.in(id_MUX8LUT_frame_config, id_MUX8LUT_frame_config_mux)) {
+                generate_split_mux8(bel);
+                ctx->bel_info(bel).hidden = true;
+            } else if (data.type == id_IO_1_bidirectional_frame_config_pass) {
+                if (!data.pins.count(id_PAD)) {
+                    // Add a PAD pseudo-pin for the top level
+                    ctx->addBelInout(bel, id_PAD,
+                                     get_wire(data.name[0], ctx->idf("PAD_%s", data.name[1].c_str(ctx)), id_PAD));
+                }
+            }
+        }
+    }
+
+    int max_x = 0, max_y = 0;
+    void init_pips(double pip_delay_scale)
+    {
+        std::string pips_file =
+                corner.empty() ? "/.FABulous/pips.txt" : stringf("/.FABulous/pips.%s.txt", corner.c_str());
+
+        log_info("Reading PIPs file: %s\n", pips_file.c_str());
+        std::ifstream in = open_data_rel(pips_file);
+        CsvParser csv(in);
+        while (csv.fetch_next_line()) {
+            IdString src_tile = csv.next_field().to_id(ctx);
+            IdString src_port = csv.next_field().to_id(ctx);
+            IdString dst_tile = csv.next_field().to_id(ctx);
+            IdString dst_port = csv.next_field().to_id(ctx);
+            int delay = csv.next_field().to_int();
+            IdString pip_name = csv.next_field().to_id(ctx);
+            WireId src_wire = get_wire(src_tile, src_port, src_port);
+            WireId dst_wire = get_wire(dst_tile, dst_port, dst_port);
+            Loc loc = tile_loc(src_tile);
+            max_x = std::max(loc.x, max_x);
+            max_y = std::max(loc.y, max_y);
+            ctx->addPip(IdStringList::concat(src_tile, pip_name), pip_name, src_wire, dst_wire,
+                        ctx->getDelayFromNS(pip_delay_scale * delay), loc);
+        }
+    }
+
+    void remove_bel_pin(BelId bel, IdString pin)
+    {
+        auto &bel_data = ctx->bel_info(bel);
+        auto &wire_data = ctx->wire_info(ctx->getBelPinWire(bel, pin));
+        std::vector<BelPin> new_wire_pins;
+        for (const auto &wire_pin : wire_data.bel_pins) {
+            if (wire_pin.bel == bel && wire_pin.pin == pin)
+                continue;
+            new_wire_pins.push_back(wire_pin);
+        }
+        wire_data.bel_pins = new_wire_pins;
+        bel_data.pins.erase(pin);
+    }
+
+    void setup_lut_permutation()
+    {
+        for (auto bel : ctx->getBels()) {
+            auto &bel_data = ctx->bel_info(bel);
+            if (!bel_data.type.in(id_FABULOUS_LC, id_FABULOUS_COMB))
+                continue;
+            std::vector<WireId> orig_inputs, new_inputs;
+            for (unsigned i = 0; i < cfg.clb.lut_k; i++) {
+                // Rewire the LUT input to a permutation pseudo-wire
+                IdString pin = ctx->idf("I%d", i);
+                orig_inputs.push_back(ctx->getBelPinWire(bel, pin));
+                remove_bel_pin(bel, pin);
+                WireId in_wire = get_wire(bel_data.name[0], ctx->idf("%s_PERM_I%d", bel_data.name[1].c_str(ctx), i),
+                                          id__LUT_PERM_IN);
+                ctx->addBelInput(bel, pin, in_wire);
+                new_inputs.push_back(in_wire);
+            }
+            for (unsigned i = 0; i < cfg.clb.lut_k; i++) {
+                for (unsigned j = 0; j < cfg.clb.lut_k; j++) {
+                    add_pseudo_pip(orig_inputs.at(i), new_inputs.at(j), id__LUT_PERM, 0.1,
+                                   PseudoPipTags(PseudoPipTags::LUT_PERM, bel, ((i << 4) | j)));
+                }
+            }
+        }
+    }
+
+    // Fast lookup of tile names to XY pairs
+    dict<IdString, Loc> tile2loc;
+    Loc tile_loc(IdString tile)
+    {
+        if (!tile2loc.count(tile)) {
+            std::string tile_name = tile.str(ctx);
+            parser_view view(tile_name);
+            NPNR_ASSERT(view[0] == 'X');
+            size_t ypos = view.find('Y');
+            NPNR_ASSERT(ypos != parser_view::npos);
+            int x = view.substr(1, ypos - 1).to_int();
+            int y = view.substr(ypos + 1).to_int();
+            tile2loc[tile] = Loc(x, y, 0);
+        }
+        return tile2loc.at(tile);
+    }
+
+    // Create a wire if it doesn't exist, otherwise just return it
+    WireId get_wire(IdString tile, IdString wire, IdString type)
+    {
+        // Create a wire name by using the built-in IdStringList mechanism to store a (tile, wire) pair
+        // this way we don't store a full string in memory of every concatenated wire name, reducing the memory
+        // footprint and start time significantly beyond the ~1k LUT scale
+        auto wire_name = IdStringList::concat(tile, wire);
+        auto found = ctx->wire_by_name.find(wire_name);
+        if (found != ctx->wire_by_name.end())
+            return found->second;
+        // doesn't exist
+        Loc loc = tile_loc(tile);
+        return ctx->addWire(wire_name, type, loc.x, loc.y);
+    }
+
+    void init_pseudo_constant_wires()
+    {
+        for (int y = 0; y <= max_y; y++) {
+            for (int x = 0; x <= max_x; x++) {
+                for (int c = 0; c <= 1; c++) {
+                    IdString name = ctx->idf("$CONST%d", c);
+                    IdString tile = ctx->idf("X%dY%d", x, y);
+                    WireId const_wire = get_wire(tile, name, name);
+                    // Driver bel; always at 0;0
+                    if (x == 0 && y == 0) {
+                        int z = 0;
+                        while (ctx->bel_by_loc.count(Loc(x, y, z)))
+                            z++;
+                        BelId const_driver = ctx->addBel(IdStringList::concat(tile, ctx->idf("_CONST%d_DRV", c)),
+                                                         ctx->idf("_CONST%d_DRV", c), Loc(x, y, z), true, true);
+                        ctx->addBelOutput(const_driver, id_O, const_wire);
+                    }
+                    if (x > 0) {
+                        // 'right' pip
+                        WireId prev_wire = get_wire(ctx->idf("X%dY%d", 0, y), name, name);
+                        add_pseudo_pip(prev_wire, const_wire, name, 0.1);
+                    }
+                    if (y > 0) {
+                        // 'down' pip
+                        WireId prev_wire = get_wire(ctx->idf("X%dY%d", x, 0), name, name);
+                        add_pseudo_pip(prev_wire, const_wire, name, 0.1);
+                    }
+                }
+            }
+        }
+        // LUTs can act as constant drivers if they aren't used.
+        // To avoid an exorbitant number of pips, only do this for the first LUT in a tile
+        // This pip will only be enabled if the LUT isn't used
+        for (BelId bel : ctx->getBels()) {
+            if (!ctx->getBelType(bel).in(id_FABULOUS_LC, id_FABULOUS_COMB))
+                continue;
+            Loc loc = ctx->getBelLocation(bel);
+            WireId o = ctx->getBelPinWire(bel, id_O);
+            for (int c = 0; c <= 1; c++) {
+                IdString const_name = ctx->idf("$CONST%d", c);
+                WireId const_wire = get_wire(ctx->idf("X%dY%d", loc.x, loc.y), const_name, const_name);
+                add_pseudo_pip(const_wire, o, const_name, 0.1, PseudoPipTags(PseudoPipTags::LUT_CONST, bel, c));
+            }
+        }
+        // We can also have dedicated constant wires in the fabric
+        for (WireId wire : ctx->getWires()) {
+            auto &wire_data = ctx->wire_info(wire);
+            IdString name_suffix = wire_data.name[1];
+            int const_val = -1;
+            if (name_suffix.in(id_GND, id_GND0))
+                const_val = 0;
+            else if (name_suffix.in(id_VCC, id_VCC0, id_VDD, id_VDD0))
+                const_val = 1;
+            else
+                continue;
+            IdString const_name = ctx->idf("$CONST%d", const_val);
+            WireId const_wire = get_wire(ctx->idf("X%dY%d", wire_data.x, wire_data.y), const_name, const_name);
+            add_pseudo_pip(const_wire, wire, const_name, 0.1);
+        }
+    }
+
+    CellTagger cell_tags;
+    void assign_cell_info()
+    {
+        for (auto &cell : ctx->cells) {
+            cell_tags.assign_for(ctx, cfg, cell.second.get());
+        }
+    }
+    void notifyBelChange(BelId bel, CellInfo *cell)
+    {
+        CellInfo *old = ctx->getBoundBelCell(bel);
+        blk_trk->update_bel(bel, old, cell);
+    }
+
+    bool checkPipAvail(PipId pip) const override
+    {
+        if (pip.index >= int(pp_tags.size()))
+            return true;
+        const auto &tags = pp_tags.at(pip.index);
+        if (tags.type == PseudoPipTags::LUT_CONST) {
+            return ctx->checkBelAvail(tags.bel);
+        } else if (tags.type == PseudoPipTags::LUT_PERM) {
+            uint8_t from = (tags.data >> 4) & 0xF, to = (tags.data & 0xF);
+            if (from == to)
+                return true;
+            const CellInfo *lut = ctx->getBoundBelCell(tags.bel);
+            if (!lut)
+                return true;
+            bool is_carry = cell_tags.get(lut).comb.carry_used;
+            if (is_carry) {
+                // Because you have to make sure you route _something_ to each HA input in this mode (undefined I1/I2
+                // inputs aren't OK) and you also can't swap I0 because it's fixed internally LUT permutation in carry
+                // mode is just more trouble than it's worth.
+                return false;
+            } else {
+                return true; // TODO: other cases where perm illegal; e.g. LUTRAM
+            }
+        } else {
+            // TODO: LUT permuation pseudopips
+            return true;
+        }
+    }
+
+    delay_t predictDelay(BelId src_bel, IdString src_pin, BelId dst_bel, IdString dst_pin) const override
+    {
+        if (src_pin == id_Co && dst_pin == id_Ci)
+            return carry_predict_delay;
+
+        auto driver_loc = ctx->getBelLocation(src_bel);
+        auto sink_loc = ctx->getBelLocation(dst_bel);
+
+        int dx = abs(sink_loc.x - driver_loc.x);
+        int dy = abs(sink_loc.y - driver_loc.y);
+        return (dx + dy) * ctx->args.delayScale + ctx->args.delayOffset;
+    }
+};
+
+struct FabulousArch : ViaductArch
+{
+    FabulousArch() : ViaductArch("fabulous") {};
+    std::unique_ptr<ViaductAPI> create(const dict<std::string, std::string> &args)
+    {
+        return std::make_unique<FabulousImpl>(args);
+    }
+} fabulousArch;
+} // namespace
+
+NEXTPNR_NAMESPACE_END

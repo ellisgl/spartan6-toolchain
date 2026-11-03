@@ -1,0 +1,537 @@
+/*
+ *  nextpnr -- Next Generation Place and Route
+ *
+ *  Spartan-6 himbaechel uarch: distributed RAM and shift registers (SLICEM).
+ *
+ *  Permission to use, copy, modify, and/or distribute this software for any
+ *  purpose with or without fee is hereby granted, provided that the above
+ *  copyright notice and this permission notice appear in all copies.
+ *
+ *  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ *  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ *  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ *  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ *  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ *  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+#include "log.h"
+#include "nextpnr.h"
+#include "util.h"
+
+#define HIMBAECHEL_CONSTIDS "uarch/spartan6/constids.inc"
+#include "himbaechel_constids.h"
+
+#include "spartan6.h"
+
+NEXTPNR_NAMESPACE_BEGIN
+
+// SLICEM LUTs as RAM or shift registers (cell type SLICE_LUTRAM, only on
+// SLICEM LUT6 bels, which have the extra pins). In a SLICEM all four LUTs
+// take their write address from the D LUT's input pins (WA = D1..D6), share
+// WE (WE or CE pin) and the slice clock. So:
+//   RAM64X1S: up to four with the same address, clock and WE share a slice;
+//             one of them is always the D LUT (its read address is the
+//             write address). RAMMODE RAM64.
+//   RAM32M:   the whole slice; per letter bit 0 is the DI1 -> O5 half and
+//             bit 1 the DI2 -> O6 half (A6 tied high). RAMMODE RAM32.
+//   RAM64X1D, RAM128X1S/D, RAM256X1S: see "Wide RAMs" below.
+//   RAM32X1S/D: as RAM64X1S/D with the top address bit tied high.
+//   RAM64M:   the whole slice; per letter one 64-deep bit, DI1 -> O6.
+//             RAMMODE RAM64. (Both: letter x reads at ADDRx, all write at
+//             ADDRD, which is also the D LUT's read address.)
+//   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
+//             CE on WE. RAMMODE SRL32. A used Q31 (cascade) is taken from Q
+//             at address 31 (from a copy of the SRL when Q is used too).
+// An inverted clock (IS_*CLK_INVERTED) becomes CLK_INV = 1 on the LUT cells;
+// the slice inverts its clock for all of them and its FFs (CLKINV).
+//   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
+//             RAMMODE SRL16.
+
+namespace {
+const int Z_SLICEM = s6z::BASE; // SLICE[0]
+int lut6_z(int letter) { return Z_SLICEM + letter * 8 + s6z::LUT6; }
+
+void move_port(CellInfo *ci, IdString from, IdString to)
+{
+    if (ci->ports.count(from))
+        ci->renamePort(from, to);
+}
+
+void add_in(CellInfo *ci, IdString port, NetInfo *net)
+{
+    ci->ports[port].name = port;
+    ci->ports[port].type = PORT_IN;
+    if (net)
+        ci->connectPort(port, net);
+}
+
+std::string init_bits(const CellInfo *ci, IdString p, int n)
+{
+    std::string s(n, '0');
+    if (ci->params.count(p)) {
+        const Property &v = ci->params.at(p);
+        for (int i = 0; i < n && i < int(v.str.size()); i++)
+            s[n - 1 - i] = v.str[i] == Property::S1 ? '1' : '0';
+    }
+    return s;
+}
+} // namespace
+
+void Spartan6Impl::pack_lutram()
+{
+    NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
+    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0, ncasc = 0, ndup = 0;
+    std::vector<CellInfo *> ram64, ram32m, ram128, srl;
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type == id_RAM64X1S)
+            ram64.push_back(ci);
+        else if (ci->type.in(id_RAM32M, id_RAM64M))
+            ram32m.push_back(ci);
+        else if (ci->type.in(id_RAM64X1D, id_RAM128X1S, id_RAM128X1D, id_RAM256X1S))
+            ram128.push_back(ci);
+        else if (ci->type.in(id_SRLC32E, id_SRL16E))
+            srl.push_back(ci);
+        else if (ci->type.in(id_RAM32X1S, id_RAM32X1D)) {
+            // As the 64-deep RAM with the top address bit tied high (write
+            // and read addresses alike): the contents in the upper half.
+            bool dual = ci->type == id_RAM32X1D;
+            std::string init = init_bits(ci, id_INIT, 32); // MSB first
+            ci->params[id_INIT] = Property::from_string(init + std::string(32, '0'));
+            add_in(ci, id_A5, vcc);
+            if (dual)
+                add_in(ci, ctx->id("DPRA5"), vcc);
+            ci->type = dual ? id_RAM64X1D : id_RAM64X1S;
+            (dual ? ram128 : ram64).push_back(ci);
+        }
+    }
+
+    // Inverted write clock (the slice's CLKINV): CLK_INV on the LUT cells.
+    auto clk_inv = [&](const CellInfo *ci, IdString param) {
+        return ci->params.count(param) && ci->params.at(param).as_int64() != 0;
+    };
+    auto to_lutram = [&](CellInfo *ci, const char *mode) {
+        ci->type = id_SLICE_LUTRAM;
+        ci->params[id_RAM_MODE] = std::string(mode);
+    };
+
+    // RAM64X1S: group by address, clock and WE.
+    dict<std::string, std::vector<CellInfo *>> groups;
+    for (CellInfo *ci : ram64) {
+        std::string key = clk_inv(ci, id_IS_WCLK_INVERTED) ? "inv|" : "|";
+        for (IdString p : {id_A0, id_A1, id_A2, id_A3, id_A4, id_A5, id_WCLK, id_WE}) {
+            NetInfo *n = ci->getPort(p);
+            key += n ? n->name.str(ctx) : "-";
+            key += "|";
+        }
+        groups[key].push_back(ci);
+    }
+    for (auto &g : groups) {
+        auto &cells = g.second;
+        for (size_t base = 0; base < cells.size(); base += 4) {
+            CellInfo *root = nullptr;
+            for (size_t k = 0; k < 4 && base + k < cells.size(); k++) {
+                CellInfo *ci = cells[base + k];
+                static const IdString a[6] = {id_A0, id_A1, id_A2, id_A3, id_A4, id_A5};
+                static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+                static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+                std::vector<NetInfo *> addr;
+                for (int i = 0; i < 6; i++)
+                    addr.push_back(ci->getPort(a[i]));
+                for (int i = 0; i < 6; i++)
+                    ci->disconnectPort(a[i]);
+                for (int i = 0; i < 6; i++)
+                    ci->ports.erase(a[i]);
+                for (int i = 0; i < 6; i++) {
+                    add_in(ci, la[i], addr[i]);
+                    add_in(ci, wa[i], addr[i]);
+                }
+                move_port(ci, id_D, id_DI1);
+                move_port(ci, id_WCLK, id_CLK);
+                if (clk_inv(ci, id_IS_WCLK_INVERTED))
+                    ci->params[id_CLK_INV] = Property(1, 1);
+                ci->params.erase(id_IS_WCLK_INVERTED);
+                to_lutram(ci, "RAM64");
+                int letter = 3 - int(k); // D first, then C, B, A
+                if (!root) {
+                    root = ci;
+                    ci->cluster = ci->name;
+                    ci->constr_abs_z = true;
+                    ci->constr_z = lut6_z(letter);
+                } else {
+                    ci->cluster = root->name;
+                    root->constr_children.push_back(ci);
+                    ci->constr_x = 0;
+                    ci->constr_y = 0;
+                    ci->constr_abs_z = true;
+                    ci->constr_z = lut6_z(letter);
+                }
+                n64++;
+            }
+        }
+    }
+
+    // RAM32M / RAM64M: four new LUT cells (D first), then the original goes.
+    for (CellInfo *ci : ram32m) {
+        bool deep = ci->type == id_RAM64M;
+        int abits = deep ? 6 : 5;
+        bool inv = clk_inv(ci, id_IS_WCLK_INVERTED);
+        NetInfo *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
+        std::vector<NetInfo *> waddr;
+        for (int i = 0; i < abits; i++)
+            waddr.push_back(ci->getPort(ctx->idf("ADDRD[%d]", i)));
+        static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+        static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+        CellInfo *root = nullptr;
+        for (int letter = 3; letter >= 0; letter--) {
+            char x = "ABCD"[letter];
+            CellInfo *lut = ctx->createCell(ctx->idf("%s$%c", ci->name.c_str(ctx), x), id_SLICE_LUTRAM);
+            for (int i = 0; i < abits; i++) {
+                add_in(lut, la[i], ci->getPort(ctx->idf("ADDR%c[%d]", x, i)));
+                add_in(lut, wa[i], waddr[i]);
+            }
+            add_in(lut, id_WE, we);
+            add_in(lut, id_CLK, wclk);
+            if (inv)
+                lut->params[id_CLK_INV] = Property(1, 1);
+            if (deep) {
+                add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c", x)));
+                IdString from = ctx->idf("DO%c", x);
+                NetInfo *n = ci->getPort(from);
+                lut->addOutput(id_O);
+                if (n) {
+                    ci->disconnectPort(from);
+                    lut->connectPort(id_O, n);
+                }
+                lut->params[id_INIT] = Property::from_string(init_bits(ci, ctx->idf("INIT_%c", x), 64));
+                lut->params[id_RAM_MODE] = std::string("RAM64");
+            } else {
+                add_in(lut, id_A6, vcc);
+                add_in(lut, id_WA6, vcc);
+                add_in(lut, id_DI1, ci->getPort(ctx->idf("DI%c[0]", x)));
+                add_in(lut, id_DI2, ci->getPort(ctx->idf("DI%c[1]", x)));
+                for (auto &o : {std::make_pair(0, id_O5), std::make_pair(1, id_O)}) {
+                    IdString from = ctx->idf("DO%c[%d]", x, o.first);
+                    NetInfo *n = ci->getPort(from);
+                    lut->addOutput(o.second);
+                    if (n) {
+                        ci->disconnectPort(from);
+                        lut->connectPort(o.second, n);
+                    }
+                }
+                // INIT_x interleaves the halves: bit 2i -> O5 (lower half of the
+                // LUT table), bit 2i+1 -> O6 (upper half).
+                std::string init = init_bits(ci, ctx->idf("INIT_%c", x), 64); // MSB first
+                std::string lut_init(64, '0');
+                for (int i = 0; i < 32; i++) {
+                    lut_init[63 - i] = init[63 - 2 * i];
+                    lut_init[63 - (32 + i)] = init[63 - (2 * i + 1)];
+                }
+                lut->params[id_INIT] = Property::from_string(lut_init);
+                lut->params[id_RAM_MODE] = std::string("RAM32");
+            }
+            if (!root) {
+                root = lut;
+                lut->cluster = lut->name;
+                lut->constr_abs_z = true;
+                lut->constr_z = lut6_z(letter);
+            } else {
+                lut->cluster = root->name;
+                root->constr_children.push_back(lut);
+                lut->constr_x = 0;
+                lut->constr_y = 0;
+                lut->constr_abs_z = true;
+                lut->constr_z = lut6_z(letter);
+            }
+        }
+        std::vector<IdString> ports;
+        for (auto &p : ci->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            ci->disconnectPort(p);
+        ctx->cells.erase(ci->name);
+        (deep ? n64m : n32m)++;
+    }
+
+    // Wide RAMs: RAM64 LUTs plus F7/F8 muxes in one slice (one cluster on
+    // the D LUT), laid out as ISE's map does. All LUTs write at the D LUT's
+    // address (WA1..6), WA7 on CX and WA8 on BX; data in on DX (C and B take
+    // it through their DI1 mux, A through B's).
+    //   RAM64X1D:  D = SPO (read at A), B = DPO (read at DPRA).
+    //   RAM128X1S: D low / C high, F7BMUX (sel CX = A6) -> O.
+    //   RAM128X1D: D/C as RAM128X1S -> SPO; B low / A high read at DPRA,
+    //              F7AMUX (sel AX = DPRA6) -> DPO.
+    //   RAM256X1S: D, C, B, A = quarters low to high; F7BMUX (C/D) and
+    //              F7AMUX (A/B) on A6, F8MUX on BX = A7 -> O.
+    for (CellInfo *ci : ram128) {
+        auto port = [&](const char *bus, int i) {
+            NetInfo *n = ci->getPort(ctx->idf("%s[%d]", bus, i));
+            return n ? n : ci->getPort(ctx->idf("%s%d", bus, i));
+        };
+        bool inv = clk_inv(ci, id_IS_WCLK_INVERTED);
+        IdString type = ci->type;
+        int abits = type == id_RAM64X1D ? 6 : type == id_RAM256X1S ? 8 : 7;
+        std::vector<NetInfo *> addr, dpra;
+        for (int i = 0; i < abits; i++) {
+            addr.push_back(port("A", i));
+            dpra.push_back(port("DPRA", i));
+        }
+        NetInfo *d = ci->getPort(id_D), *we = ci->getPort(id_WE), *wclk = ci->getPort(id_WCLK);
+        int bits = 1 << abits;
+        std::string init = init_bits(ci, id_INIT, bits); // MSB first
+        auto init64 = [&](int q) { return init.substr(bits - 64 * (q + 1), 64); };
+        static const IdString la[6] = {id_A1, id_A2, id_A3, id_A4, id_A5, id_A6};
+        static const IdString wa[6] = {id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+        CellInfo *root = nullptr;
+        auto place = [&](CellInfo *c, int z) {
+            c->constr_abs_z = true;
+            c->constr_z = z;
+            if (!root) {
+                root = c;
+                c->cluster = c->name;
+            } else {
+                c->cluster = root->name;
+                root->constr_children.push_back(c);
+                c->constr_x = 0;
+                c->constr_y = 0;
+            }
+        };
+        auto take_out = [&](IdString from) {
+            NetInfo *n = ci->getPort(from);
+            if (n)
+                ci->disconnectPort(from);
+            return n;
+        };
+        auto lut = [&](int letter, const std::vector<NetInfo *> &ra, const std::string &tbl, NetInfo *out) {
+            CellInfo *c = ctx->createCell(ctx->idf("%s$%c", ci->name.c_str(ctx), "ABCD"[letter]), id_SLICE_LUTRAM);
+            for (int i = 0; i < 6; i++) {
+                add_in(c, la[i], ra[i]);
+                add_in(c, wa[i], addr[i]);
+            }
+            if (abits > 6)
+                add_in(c, id_WA7, addr[6]);
+            if (abits > 7)
+                add_in(c, id_WA8, addr[7]);
+            add_in(c, id_DI1, d);
+            add_in(c, id_WE, we);
+            add_in(c, id_CLK, wclk);
+            if (inv)
+                c->params[id_CLK_INV] = Property(1, 1);
+            c->params[id_INIT] = Property::from_string(tbl);
+            c->params[id_RAM_MODE] = std::string("RAM64");
+            c->addOutput(id_O);
+            if (!out)
+                out = ctx->createNet(ctx->idf("%s$%c_O", ci->name.c_str(ctx), "ABCD"[letter]));
+            c->connectPort(id_O, out);
+            place(c, lut6_z(letter));
+            return out;
+        };
+        auto mux = [&](IdString mtype, int zrel, const char *name, NetInfo *i0, NetInfo *i1, NetInfo *sel,
+                       NetInfo *out) {
+            CellInfo *m = ctx->createCell(ctx->idf("%s$%s", ci->name.c_str(ctx), name), mtype);
+            add_in(m, id_I0, i0);
+            add_in(m, id_I1, i1);
+            add_in(m, id_S, sel);
+            m->addOutput(id_O);
+            if (!out)
+                out = ctx->createNet(ctx->idf("%s$%s_O", ci->name.c_str(ctx), name));
+            m->connectPort(id_O, out);
+            place(m, Z_SLICEM + zrel);
+            return out;
+        };
+        std::vector<NetInfo *> ra_a(addr.begin(), addr.begin() + 6), ra_dp(dpra.begin(), dpra.begin() + 6);
+        if (type == id_RAM64X1D) {
+            NetInfo *spo = take_out(id_SPO), *dpo = take_out(id_DPO);
+            lut(3, ra_a, init64(0), spo);
+            lut(1, ra_dp, init64(0), dpo);
+        } else if (type == id_RAM128X1S || type == id_RAM128X1D) {
+            NetInfo *spo = take_out(type == id_RAM128X1S ? id_O : id_SPO);
+            NetInfo *lo = lut(3, ra_a, init64(0), nullptr);
+            NetInfo *hi = lut(2, ra_a, init64(1), nullptr);
+            mux(id_SLICE_F7MUX, s6z::F7BMUX, "F7B", lo, hi, addr[6], spo);
+            if (type == id_RAM128X1D) {
+                NetInfo *dpo = take_out(id_DPO);
+                NetInfo *dlo = lut(1, ra_dp, init64(0), nullptr);
+                NetInfo *dhi = lut(0, ra_dp, init64(1), nullptr);
+                mux(id_SLICE_F7MUX, s6z::F7AMUX, "F7A", dlo, dhi, dpra[6], dpo);
+            }
+        } else { // RAM256X1S
+            NetInfo *o = take_out(id_O);
+            NetInfo *q0 = lut(3, ra_a, init64(0), nullptr);
+            NetInfo *q1 = lut(2, ra_a, init64(1), nullptr);
+            NetInfo *q2 = lut(1, ra_a, init64(2), nullptr);
+            NetInfo *q3 = lut(0, ra_a, init64(3), nullptr);
+            NetInfo *f7b = mux(id_SLICE_F7MUX, s6z::F7BMUX, "F7B", q0, q1, addr[6], nullptr);
+            NetInfo *f7a = mux(id_SLICE_F7MUX, s6z::F7AMUX, "F7A", q2, q3, addr[6], nullptr);
+            mux(id_SLICE_F8MUX, s6z::F8MUX, "F8", f7b, f7a, addr[7], o);
+        }
+        std::vector<IdString> ports;
+        for (auto &p : ci->ports)
+            ports.push_back(p.first);
+        for (IdString p : ports)
+            ci->disconnectPort(p);
+        ctx->cells.erase(ci->name);
+        n128++;
+    }
+
+    // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
+    for (size_t si = 0; si < srl.size(); si++) {
+        CellInfo *ci = srl[si];
+        bool srl16 = ci->type == id_SRL16E;
+        if (clk_inv(ci, id_IS_CLK_INVERTED))
+            ci->params[id_CLK_INV] = Property(1, 1);
+        ci->params.erase(id_IS_CLK_INVERTED);
+        if (srl16) {
+            static const IdString a16[4] = {id_A0, id_A1, id_A2, id_A3};
+            static const IdString la16[4] = {id_A2, id_A3, id_A4, id_A5};
+            std::vector<NetInfo *> addr;
+            for (int i = 0; i < 4; i++)
+                addr.push_back(ci->getPort(a16[i]));
+            for (int i = 0; i < 4; i++)
+                if (ci->ports.count(a16[i])) {
+                    ci->disconnectPort(a16[i]);
+                    ci->ports.erase(a16[i]);
+                }
+            for (int i = 0; i < 4; i++)
+                add_in(ci, la16[i], addr[i]);
+            add_in(ci, id_A1, vcc);
+            add_in(ci, id_A6, vcc);
+            move_port(ci, id_D, id_DI2);
+            move_port(ci, id_CE, id_WE);
+            move_port(ci, id_Q, id_O);
+            to_lutram(ci, "SRL16");
+            nsrl++;
+            continue;
+        }
+        // Cascade output Q31 (yosys chains SRLC32Es for longer shift
+        // registers): when Q isn't used, Q at address 31 is the same bit, so
+        // Q31's net moves to Q and the address is tied high; the cascade is
+        // then ordinary routing. When Q is used too, a copy of the SRL (same
+        // D, CE, clock and initial contents, address 31) gives Q31 on its Q
+        // instead of the slice's MC31 path: one more LUT, no placement rules.
+        NetInfo *q31 = ci->getPort(id_Q31);
+        NetInfo *q = ci->getPort(id_Q);
+        if (q31 && q31->users.entries() && q && q->users.entries()) {
+            CellInfo *dup = ctx->createCell(ctx->idf("%s$q31", ci->name.c_str(ctx)), id_SRLC32E);
+            dup->params = ci->params;
+            for (IdString p : {id_D, id_CE, id_CLK}) {
+                if (NetInfo *n = ci->getPort(p)) {
+                    dup->addInput(p);
+                    dup->connectPort(p, n);
+                }
+            }
+            for (int i = 0; i < 5; i++)
+                add_in(dup, ctx->idf("A[%d]", i), vcc);
+            ci->disconnectPort(id_Q31);
+            dup->addOutput(id_Q);
+            dup->connectPort(id_Q, q31);
+            srl.push_back(dup); // packed like any other, later in this loop
+            ndup++;
+        } else if (q31 && q31->users.entries()) {
+            if (q)
+                ci->disconnectPort(id_Q);
+            ci->disconnectPort(id_Q31);
+            ci->connectPort(id_Q, q31);
+            for (int i = 0; i < 5; i++) {
+                IdString a = ctx->idf("A[%d]", i);
+                if (ci->ports.count(a))
+                    ci->disconnectPort(a);
+                add_in(ci, a, vcc);
+            }
+            ncasc++;
+        }
+        static const IdString a[5] = {ctx->id("A[0]"), ctx->id("A[1]"), ctx->id("A[2]"), ctx->id("A[3]"),
+                                      ctx->id("A[4]")};
+        static const IdString la[5] = {id_A2, id_A3, id_A4, id_A5, id_A6};
+        std::vector<NetInfo *> addr;
+        for (int i = 0; i < 5; i++)
+            addr.push_back(ci->getPort(a[i]));
+        for (int i = 0; i < 5; i++)
+            if (ci->ports.count(a[i])) {
+                ci->disconnectPort(a[i]);
+                ci->ports.erase(a[i]);
+            }
+        for (int i = 0; i < 5; i++)
+            add_in(ci, la[i], addr[i]);
+        add_in(ci, id_A1, vcc);
+        move_port(ci, id_D, id_DI1);
+        move_port(ci, id_CE, id_WE);
+        move_port(ci, id_Q, id_O);
+        if (ci->ports.count(id_Q31)) {
+            ci->disconnectPort(id_Q31);
+            ci->ports.erase(id_Q31);
+        }
+        // INIT stays 32 bits; the writers place it in the LUT.
+        to_lutram(ci, "SRL32");
+        nsrl++;
+    }
+    // LUT address pins can be tied high (TIE_1) but some can't reach ground,
+    // and a RAM / SRL address can't be folded into the table the way a
+    // logic LUT's can. Constant-0 address bits (an SRL's fixed tap, say)
+    // come from one shared LUT whose output is 0.
+    NetInfo *lut_gnd = nullptr;
+    int ngnd = 0;
+    static const IdString addr_ports[] = {id_A1,  id_A2,  id_A3,  id_A4,  id_A5,  id_A6,
+                                          id_WA1, id_WA2, id_WA3, id_WA4, id_WA5, id_WA6};
+    std::vector<CellInfo *> lutram_cells;
+    for (auto &cell : ctx->cells)
+        if (cell.second->type == id_SLICE_LUTRAM)
+            lutram_cells.push_back(cell.second.get());
+    for (CellInfo *ci : lutram_cells)
+        for (IdString p : addr_ports) {
+            NetInfo *n = ci->getPort(p);
+            if (!n || n->constant_value != id_GND)
+                continue;
+            if (!lut_gnd) {
+                lut_gnd = ctx->createNet(ctx->id("$lutram_gnd"));
+                CellInfo *drv = ctx->createCell(ctx->id("$lutram_gnd_lut"), id_LUT1);
+                drv->params[id_INIT] = Property(0, 2);
+                drv->addOutput(id_O);
+                drv->connectPort(id_O, lut_gnd);
+            }
+            ci->disconnectPort(p);
+            ci->connectPort(p, lut_gnd);
+            ngnd++;
+        }
+    // ISE requires a RAM / SRL LUT's data input to be connected; yosys can
+    // leave one undriven (an unused bit of a RAM64M, say).
+    for (CellInfo *ci : lutram_cells) {
+        const std::string &mode = ci->params.at(id_RAM_MODE).as_string();
+        std::vector<IdString> di;
+        if (mode == "RAM64" || mode == "SRL32")
+            di = {id_DI1};
+        else if (mode == "RAM32")
+            di = {id_DI1, id_DI2};
+        else
+            di = {id_DI2};
+        for (IdString p : di) {
+            NetInfo *n = ci->getPort(p);
+            if (n && n->driver.cell)
+                continue;
+            if (!lut_gnd) {
+                lut_gnd = ctx->createNet(ctx->id("$lutram_gnd"));
+                CellInfo *drv = ctx->createCell(ctx->id("$lutram_gnd_lut"), id_LUT1);
+                drv->params[id_INIT] = Property(0, 2);
+                drv->addOutput(id_O);
+                drv->connectPort(id_O, lut_gnd);
+            }
+            if (n)
+                ci->disconnectPort(p);
+            add_in(ci, p, lut_gnd);
+            ngnd++;
+        }
+    }
+    if (ngnd)
+        log_info("%d constant-0 RAM/SRL address or undriven data pins driven from a LUT.\n", ngnd);
+    if (n64 || n32m || n64m || n128 || nsrl)
+        log_info("Packed %d RAM64X1S, %d RAM32M, %d RAM64M, %d wide RAMs and %d SRLs into SLICEM LUTs.\n", n64, n32m,
+                 n64m, n128, nsrl);
+    if (ncasc)
+        log_info("%d SRLC32E cascade outputs (Q31) taken from Q at address 31.\n", ncasc);
+    if (ndup)
+        log_info("%d SRLC32Es using both Q and Q31 duplicated (the copy gives Q31).\n", ndup);
+}
+
+NEXTPNR_NAMESPACE_END
