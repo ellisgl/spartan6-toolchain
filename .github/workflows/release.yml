@@ -29,10 +29,14 @@ jobs:
 
       - name: Build nextpnr and the chip databases
         run: |
-          make -j$(nproc)
+          # Boost linked statically, so the binary runs on other distributions.
+          make -j$(nproc) NPNR_CMAKE_FLAGS=-DSTATIC_BUILD=ON
           for d in xc6slx4 xc6slx16 xc6slx25 xc6slx25t xc6slx45; do
             make -j$(nproc) DEVICE=$d build/chipdb-$d.bin
           done
+
+      - name: Check the binary's shared libraries
+        run: ldd build/nextpnr-build/nextpnr-himbaechel
 
       - name: Package
         run: |
