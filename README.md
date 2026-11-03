@@ -69,6 +69,7 @@ talks to the Mojo over its USB serial port):
 | `dll2x` | `tools/dll-test.py --design dll2x` | as `dll`, with CLK2X fed back (CLK_FEEDBACK = 2X) |
 | `oddr` | `tools/oddr-test.py` | ODDR2: the pin read back on both clock edges shows D0 then D1 (`oddr_x4`: ISE check only) |
 | `iddr` | `tools/iddr-test.py` | IDDR2: a pin driven from the fabric and read back on both clock edges |
+| `srlq31` | `tools/srlq31-test.py` | SRLC32E using both a Q tap and Q31 (cascade), 8 lanes |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -429,7 +430,8 @@ primary source is kept, as an always-on pip) and factory-test wires
   anything else)
   and SRLC32E/SRL16E (any SLICEM LUT). A cascade output Q31 (yosys chains
   SRLC32Es for shift registers longer than 32) is taken from Q at address
-  31 when Q is unused, so the cascade is ordinary routing. Address pins tied to 0 (an SRL's fixed tap) and undriven
+  31 when Q is unused, so the cascade is ordinary routing; with Q used too,
+  a copy of the SRL (address 31) supplies Q31. Address pins tied to 0 (an SRL's fixed tap) and undriven
   data inputs are fed from one shared constant-0 LUT: some LUT address pins
   can't reach ground, and a RAM's address can't be folded into its table.
 - **Bus pins** are named without brackets (`ADDRA5`): nextpnr's JSON writer
@@ -469,7 +471,7 @@ Packer limits for now:
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
-  CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
+  CARRYIN), RAM32X1S/D (yosys
   uses RAM32M instead), DCM variable phase shift
   (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE),
   PLL CLKINSEL driven dynamically.
