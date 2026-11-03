@@ -143,15 +143,18 @@ void Spartan6Impl::pack_clocking()
         NetInfo *o = ci->getPort(id_I);
         if (!o || o->users.empty())
             continue;
-        // Only clock loads (BUFGs, DCM/PLL clock inputs): use the dedicated
-        // clock-pad path.
-        bool only_clock = true;
+        // Clock loads (BUFGs, DCM/PLL clock inputs) use the dedicated
+        // clock-pad path; with other loads too (e.g. a DCM's PSCLK, through
+        // general routing), the pad drives both, as ISE routes it.
+        auto is_clock = [&](const PortRef &usr) {
+            return usr.cell->type == id_BUFGMUX || (usr.cell->type == id_DCM && usr.port == id_CLKIN) ||
+                   (usr.cell->type == id_PLL && usr.port == id_CLKIN1) ||
+                   (usr.cell->type == id_BUFIO2 && usr.port == id_I);
+        };
+        bool any_clock = false, any_data = false;
         for (auto &usr : o->users)
-            if (!(usr.cell->type == id_BUFGMUX || (usr.cell->type == id_DCM && usr.port == id_CLKIN) ||
-                  (usr.cell->type == id_PLL && usr.port == id_CLKIN1) ||
-                  (usr.cell->type == id_BUFIO2 && usr.port == id_I)))
-                only_clock = false;
-        if (!only_clock)
+            (is_clock(usr) ? any_clock : any_data) = true;
+        if (!any_clock)
             continue;
         // Only a clock-capable pin has a dedicated path to the BUFGs; other
         // pins reach them through general routing from the data input.
@@ -192,7 +195,21 @@ void Spartan6Impl::pack_clocking()
         }
         if (ci->attrs.count(id_BEL) && !reaches_bufg(ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string())))
             continue;
-        ci->renamePort(id_I, id_GCLK_I);
+        if (any_data) {
+            NetInfo *g = ctx->createNet(ctx->idf("%s$gclk", o->name.c_str(ctx)));
+            std::vector<PortRef> clocks;
+            for (auto &usr : o->users)
+                if (is_clock(usr))
+                    clocks.push_back(usr);
+            for (auto &usr : clocks) {
+                usr.cell->disconnectPort(usr.port);
+                usr.cell->connectPort(usr.port, g);
+            }
+            ci->addOutput(id_GCLK_I);
+            ci->connectPort(id_GCLK_I, g);
+        } else {
+            ci->renamePort(id_I, id_GCLK_I);
+        }
         if (ci->attrs.count(id_BEL)) {
             BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());
             place_clock_tree(ctx->getBelPinWire(pad_bel, id_GCLK_I), ci->getPort(id_GCLK_I), ctx->nameOfBel(pad_bel));

@@ -1608,6 +1608,27 @@ fn main() {
             }
         }
 
+        // A pad feeding both the clock network (GCLK_I) and logic (I) is one
+        // ISE net, driven by the IOB's I pin: merge the GCLK_I net into it.
+        for c in &cells {
+            let (Some(&i_net), Some(&g_net)) = (c.conns.get("I"), c.conns.get("GCLK_I")) else { continue };
+            let (i_name, g_name) = (&nets[i_net].name, &nets[g_net].name);
+            let Some(gi) = xnets.iter().position(|x| &x.name == g_name) else { continue };
+            let g = xnets.remove(gi);
+            let x = xnets.iter_mut().find(|x| &x.name == i_name).expect("pad's I net");
+            for p in g.outpins {
+                if !x.outpins.iter().any(|q| q.inst_name == p.inst_name && q.pin == p.pin) {
+                    x.outpins.push(p);
+                }
+            }
+            x.inpins.extend(g.inpins);
+            for p in g.pips {
+                if !x.pips.iter().any(|q| q.tile == p.tile && q.wire_from == p.wire_from && q.wire_to == p.wire_to) {
+                    x.pips.push(p);
+                }
+            }
+        }
+
         // Slice muxes chosen by the router.
         for (x, y, prefix, attr, val) in site_muxes {
             let (_, site) = names.site(names.bel(x, y, &prefix));

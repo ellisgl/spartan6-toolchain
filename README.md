@@ -110,6 +110,7 @@ talks to the Mojo over its USB serial port):
 | `ram32` | `tools/ram32-test.py` | RAM32X1S and RAM32X1D (8 lanes each) with initial contents |
 | `dspcasc` | `tools/dspcasc-test.py` | DSP48A1 cascades: PCOUT -> PCIN, BCOUT -> BCIN, CARRYOUT -> CARRYIN over three DSPs |
 | `preadd` | `tools/preadd-test.py` | DSP48A1 pre-adder and pre-subtracter (inferred by yosys) |
+| `psvar` | `tools/psvar-test.py` | DCM variable phase shift (PSEN / PSINCDEC / PSDONE), 1600 steps |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -433,12 +434,19 @@ primary source is kept, as an always-on pip) and factory-test wires
   does for all 22 legal values (checked against ISE for each). Fixed phase
   shift (CLKOUT_PHASE_SHIFT = FIXED, PHASE_SHIFT -255 .. 255): twice the
   magnitude plus a sign bit, wrapping to the equivalent shift the other way
-  from 128 on (checked against ISE at 15 values). The frequency synthesizer
+  from 128 on (checked against ISE at 15 values). Variable phase shift
+  (CLKOUT_PHASE_SHIFT = VARIABLE, PSEN / PSINCDEC / PSCLK / PSDONE from
+  logic). A PSCLK on a pad's BUFG is taken from the pad's input buffer
+  instead, through general routing, as ISE does: the pad then drives both
+  its clock path (GCLK_I) and logic (I), one ISE net. The frequency synthesizer
   is enabled only when CLKFX/CLKFX180 is used. DLL_FREQUENCY_MODE = HIGH
   (without CLK90/270/2X/2X180, as ISE's DRC requires) and
   DUTY_CYCLE_CORRECTION = FALSE are one bit each (checked against ISE). REG_BG in the
   CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
   tiles.
+- **Global clocks as data:** a global clock reaches logic inputs only
+  through the interconnect's GFAN muxes, which take GCLK 0..7, so a BUFG whose
+  output also goes to logic (or a DCM's PSCLK) is placed on BUFGMUX 0..7.
 - **Global clocks stay on the clock network:** pips from general routing
   into the clock network (clock input muxes, the CMT's fabric clock outputs
   onto the row clocks; chip database pip flag 2) aren't available to nets
@@ -514,9 +522,7 @@ Packer limits for now:
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
-- **Not supported yet (packer errors out):** DCM variable phase shift
-  (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE),
-  PLL CLKINSEL driven dynamically.
+- **Not supported yet (packer errors out):** PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic);
   that includes 05 (multiply plus PCIN, which yosys uses for cascades) and

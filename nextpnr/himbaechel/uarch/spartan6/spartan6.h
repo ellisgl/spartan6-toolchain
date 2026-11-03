@@ -86,6 +86,7 @@ struct Spartan6Impl : HimbaechelAPI
     void pack_oddr();
     void pack_iddr();
     bool bufio2fb_reaches_pll(CellInfo *fb, BelId bel);
+    bool bufg_drives_data(const CellInfo *bufg) const;
     TimingClockingInfo getPortClockingInfo(const CellInfo *cell, IdString port, int index) const override;
     // DSP timing is stored per bus on bit 0 (A0 -> P0); M is looked up as P.
     IdString dsp_timing_pin(IdString port) const;

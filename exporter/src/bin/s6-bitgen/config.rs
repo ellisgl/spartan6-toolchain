@@ -751,9 +751,6 @@ impl<'a> Gen<'a> {
             }
             "DCM" => {
                 let used: Vec<&str> = c.conns.keys().map(String::as_str).collect();
-                if used.contains(&"PSDONE") {
-                    return Err(format!("{}: DCM dynamic phase shift (PSDONE) is not supported yet", c.name));
-                }
                 let feedback = p("CLK_FEEDBACK").unwrap_or("1X".into());
                 if !matches!(feedback.as_str(), "1X" | "2X" | "NONE") {
                     return Err(format!("{}: DCM CLK_FEEDBACK = {feedback} is not supported", c.name));
@@ -774,8 +771,8 @@ impl<'a> Gen<'a> {
                 let dcc = p("DUTY_CYCLE_CORRECTION").map(|v| v != "FALSE").unwrap_or(true);
                 let dll = feedback != "NONE";
                 let phase_mode = p("CLKOUT_PHASE_SHIFT").unwrap_or("NONE".into());
-                if !matches!(phase_mode.as_str(), "NONE" | "FIXED") {
-                    return Err(format!("{}: DCM CLKOUT_PHASE_SHIFT = {phase_mode} is not supported yet (NONE or FIXED)", c.name));
+                if !matches!(phase_mode.as_str(), "NONE" | "FIXED" | "VARIABLE") {
+                    return Err(format!("{}: DCM CLKOUT_PHASE_SHIFT = {phase_mode} is not valid (NONE, FIXED or VARIABLE)", c.name));
                 }
                 // ISE's register blocks first: some of their bits are the same
                 // bits as the fields below (CLKFX_*, DESKEW_ADJUST, ...), which
@@ -828,8 +825,13 @@ impl<'a> Gen<'a> {
                 // Fixed phase shift (1/256 of the period, -255 .. 255), as ISE
                 // encodes it: twice the magnitude plus a sign bit; from 128 on
                 // it wraps to the equivalent shift the other way.
-                self.set_raw_num(bcrd, "CLKOUT_PHASE_SHIFT", if phase_mode == "FIXED" { 3 } else { 1 });
-                if phase_mode == "FIXED" {
+                let mode = match phase_mode.as_str() {
+                    "FIXED" => 3,
+                    "VARIABLE" => 6,
+                    _ => 1,
+                };
+                self.set_raw_num(bcrd, "CLKOUT_PHASE_SHIFT", mode);
+                if phase_mode != "NONE" {
                     let v = num("PHASE_SHIFT", 0) as u32 as i32 as i64;
                     if !(-255..=255).contains(&v) {
                         return Err(format!("{}: DCM PHASE_SHIFT = {v} is out of range (-255 .. 255)", c.name));

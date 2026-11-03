@@ -101,6 +101,10 @@ void Spartan6Impl::pack_cmt()
                 drop_port(ci, id_CLKFB);
             unbracket(ctx, ci);
             bypass_bufg(ctx, ci, id_CLKIN);
+            // PSCLK from a pad: through general routing from the pad's input
+            // buffer, as ISE routes it (the pad's BUFG sits on a global line
+            // that can't reach the DCM's GFAN input).
+            bypass_bufg(ctx, ci, id_PSCLK);
             // Pad -> BUFIO2 (DIVCLK_CMT, divide 1, bypassed) -> DCM, as ISE's
             // map inserts it.
             NetInfo *in = ci->getPort(id_CLKIN);
@@ -247,6 +251,24 @@ static dict<WireId, int> wire_distances(Context *ctx, WireId src, int depth)
     return dist;
 }
 
+// Whether a BUFG's output also goes to logic data inputs (anything on a slice
+// but its clock and set/reset, or an I/O) or a DCM's PSCLK (through the
+// interconnect's GFAN as well), which need GCLK 0..7.
+bool Spartan6Impl::bufg_drives_data(const CellInfo *bufg) const
+{
+    const NetInfo *o = bufg->getPort(id_O);
+    if (!o)
+        return false;
+    for (auto &u : o->users) {
+        if (u.cell->type == id_IOB || (u.cell->type == id_DCM && u.port == id_PSCLK))
+            return true;
+        if (u.cell->type.in(id_SLICE_LUT, id_SLICE_LUT5, id_SLICE_FF, id_SLICE_FF5, id_SLICE_LUTRAM, id_CARRY4) &&
+            !u.port.in(id_CK, id_CLK, id_SR))
+            return true;
+    }
+    return false;
+}
+
 // Place the clock loads of `net`, driven from wire `src`: BUFGs on a
 // BUFGMUX (input I0 or I1) and DCM/PLL clock inputs on a reachable site;
 // then, recursively, the BUFGs a newly placed DCM/PLL drives.
@@ -281,8 +303,21 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         BelId best;
         IdString best_pin;
         int best_dist = 1000;
+        // A global clock reaches logic data inputs only through the
+        // interconnect's GFAN muxes, which take GCLK 0..7 alone: a BUFG whose
+        // output is also used as data goes on BUFGMUX 0..7 when one is free.
+        bool data_gclk = c->type == id_BUFGMUX && bufg_drives_data(c);
+        auto gclk_ok = [&](BelId bel) {
+            if (!data_gclk)
+                return true;
+            const std::string name = ctx->getBelName(bel)[1].str(ctx);
+            return std::stoi(name.substr(name.find('[') + 1)) < 8;
+        };
+        for (int pass = 0; pass < 2 && best == BelId(); pass++)
         for (BelId bel : ctx->getBels()) {
             if (ctx->getBelType(bel) != c->type || used_clock_bels.count(bel))
+                continue;
+            if (pass == 0 && !gclk_ok(bel))
                 continue;
             // A BUFIO2FB must also reach its (already placed) PLL's CLKFBIN.
             if (c->type == id_BUFIO2FB && !bufio2fb_reaches_pll(c, bel))
@@ -299,17 +334,21 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         // A BUFG fed from a pin without a dedicated clock path (or from
         // logic): any free BUFGMUX, reached through general routing.
         if (best == BelId() && c->type == id_BUFGMUX) {
-            for (BelId bel : ctx->getBels())
-                if (ctx->getBelType(bel) == id_BUFGMUX && !used_clock_bels.count(bel)) {
-                    best = bel;
-                    best_pin = id_I0;
-                    break;
-                }
+            for (int pass = 0; pass < 2 && best == BelId(); pass++)
+                for (BelId bel : ctx->getBels())
+                    if (ctx->getBelType(bel) == id_BUFGMUX && !used_clock_bels.count(bel) && (pass == 1 || gclk_ok(bel))) {
+                        best = bel;
+                        best_pin = id_I0;
+                        break;
+                    }
             if (best != BelId())
                 log_info("    %s: no dedicated path from %s, using general routing\n", ctx->nameOf(c), from.c_str());
         }
         if (best == BelId())
             log_error("No %s site is reachable from %s for %s\n", c->type.c_str(ctx), from.c_str(), ctx->nameOf(c));
+        if (!gclk_ok(best))
+            log_warning("%s: its clock is also used as data, but BUFGMUX 0..7 are taken; it may not route\n",
+                        ctx->nameOf(c));
         if (c->type == id_BUFGMUX && best_pin == id_I1)
             c->renamePort(id_I0, id_I1);
         if (c->type == id_PLL && best_pin != usr.port) {
