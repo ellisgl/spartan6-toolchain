@@ -234,10 +234,24 @@ void Spartan6Impl::pack_oddr()
                    (d->type == id_LUT1 && d->params.count(id_INIT) && (d->params.at(id_INIT).as_int64() & 3) == 1);
         return inv && d->getPort(d->type == id_INV ? id_I : id_I0) == of;
     };
+    // An ODDR2 driving only a pad's T: the tristate half of the data
+    // ODDR2's OLOGIC (ISE requires a DDR output's T to come from an ODDR2).
+    auto t_oddr_of = [&](CellInfo *ci) -> CellInfo * {
+        NetInfo *q = ci->getPort(id_Q);
+        if (!q || q->users.entries() != 1)
+            return nullptr;
+        auto &u = *q->users.begin();
+        return u.cell->type == id_IOB && u.port == id_T ? u.cell : nullptr;
+    };
     std::vector<CellInfo *> oddrs;
+    pool<IdString> t_oddrs;
     for (auto &cell : ctx->cells)
-        if (cell.second->type == ctx->id("ODDR2"))
-            oddrs.push_back(cell.second.get());
+        if (cell.second->type == ctx->id("ODDR2")) {
+            if (t_oddr_of(cell.second.get()))
+                t_oddrs.insert(cell.first);
+            else
+                oddrs.push_back(cell.second.get());
+        }
     pool<IdString> dead;
     for (CellInfo *ci : oddrs) {
         NetInfo *q = ci->getPort(id_Q);
@@ -255,16 +269,23 @@ void Spartan6Impl::pack_oddr()
         std::string tile = bel.substr(0, bel.find('/'));
         std::string k = bel.substr(bel.find('[')); // "[k]"
         NetInfo *c0 = ci->getPort(ctx->id("C0")), *c1 = ci->getPort(ctx->id("C1"));
-        if (!c0 || !is_inverter_of(c1, c0))
-            log_error("ODDR2 %s: C1 must be C0 inverted (C0 = clk, C1 = ~clk) for now\n", ctx->nameOf(ci));
-        CellInfo *inv = c1->driver.cell;
+        if (!c0 || !c1)
+            log_error("ODDR2 %s: C0 and C1 must both be connected\n", ctx->nameOf(ci));
+        // C1 = ~C0 (the inverter goes: the I/O clock line is inverted), or
+        // two clocks (e.g. a DCM's CLK0 and CLK180), each on its own line.
+        bool inverted = is_inverter_of(c1, c0);
+        CellInfo *inv = inverted ? c1->driver.cell : nullptr;
 
         CellInfo *ddr = ctx->createCell(ctx->idf("%s$ioi_ddr", ci->name.c_str(ctx)), ctx->id("IOI_DDR"));
         ddr->addInput(ctx->id("CLK0"));
         ddr->addInput(ctx->id("CLK1"));
         ddr->addOutput(id_CLK);
-        ddr->connectPort(ctx->id("CLK0"), c0);
+        // The IOI_DDR's CLK0 line feeds the site's CLK1 and vice versa
+        // (crosswise): with two clocks, C0 goes on CLK1.
+        ddr->connectPort(ctx->id("CLK0"), inverted ? c0 : c1);
         ddr->connectPort(ctx->id("CLK1"), c0);
+        if (!inverted)
+            ddr->params[ctx->id("TWO_CLOCKS")] = Property(1, 1);
         NetInfo *dclk = ctx->createNet(ctx->idf("%s$ddrclk", ci->name.c_str(ctx)));
         ddr->connectPort(id_CLK, dclk);
         ddr->attrs[id_BEL] = tile + "/IOI_DDR" + k;
@@ -273,6 +294,8 @@ void Spartan6Impl::pack_oddr()
         for (auto &p : ci->params)
             ol->params[p.first] = p.second;
         ol->params[ctx->id("OLOGIC_MODE")] = std::string("ODDR2");
+        if (!inverted)
+            ol->params[ctx->id("TWO_CLOCKS")] = Property(1, 1);
         ol->params[ctx->id("PAD")] = iob->name.str(ctx);
         ol->addInput(id_CLK);
         ol->connectPort(id_CLK, dclk);
@@ -303,12 +326,45 @@ void Spartan6Impl::pack_oddr()
         ol->attrs[id_BEL] = tile + "/OLOGIC" + k;
         ddr->params[id_OLOGIC] = ol->name.str(ctx);
         // The OLOGIC drives the pad itself: the pad's O input goes. A T tied
-        // low means always driving (the tristate path would need the same
-        // OLOGIC; not supported with DDR yet).
+        // low means always driving; otherwise T must come from another ODDR2
+        // on the same clocks, which becomes the OLOGIC's tristate register
+        // (TFF, T1/T2/TCE) driving the pad's T.
         iob->disconnectPort(id_O);
         if (NetInfo *t = iob->getPort(id_T)) {
-            if (t->constant_value != id_GND)
-                log_error("ODDR2 %s: a tristated DDR output is not supported yet\n", ctx->nameOf(ci));
+            if (t->constant_value != id_GND) {
+                CellInfo *tc = t->driver.cell;
+                if (!tc || !t_oddrs.count(tc->name))
+                    log_error("ODDR2 %s: the pad's T must be tied low or come from an ODDR2 (as ISE requires)\n",
+                              ctx->nameOf(ci));
+                NetInfo *tc1 = tc->getPort(ctx->id("C1"));
+                if (tc->getPort(ctx->id("C0")) != c0 || !(inverted ? is_inverter_of(tc1, c0) : tc1 == c1))
+                    log_error("ODDR2 %s: the tristate ODDR2 %s must use the same clocks\n", ctx->nameOf(ci), ctx->nameOf(tc));
+                NetInfo *tr = tc->getPort(id_R), *ts = tc->getPort(id_S);
+                if ((tr && tr->constant_value != id_GND) || (ts && ts->constant_value != id_GND))
+                    log_error("ODDR2 %s: R/S on a tristate ODDR2 is not supported yet\n", ctx->nameOf(tc));
+                auto tmove = [&](IdString from, IdString to) {
+                    NetInfo *n = tc->getPort(from);
+                    if (!n)
+                        return;
+                    tc->disconnectPort(from);
+                    ol->addInput(to);
+                    ol->connectPort(to, n);
+                };
+                tmove(ctx->id("D0"), id_T1);
+                tmove(ctx->id("D1"), id_T2);
+                tmove(id_CE, id_TCE);
+                for (auto &p : tc->params)
+                    ol->params[ctx->id("T_" + p.first.str(ctx))] = p.second;
+                ol->params[ctx->id("TFF")] = tc->name.str(ctx);
+                iob->params[ctx->id("OLOGIC_DDR_T")] = Property(1, 1);
+                for (auto &p : std::vector<IdString>{ctx->id("C0"), ctx->id("C1"), id_Q, id_R, id_S})
+                    if (tc->ports.count(p))
+                        tc->disconnectPort(p);
+                dead.insert(tc->name);
+                t_oddrs.erase(tc->name);
+                if (inverted && tc1->users.entries() == 0)
+                    dead.insert(tc1->driver.cell->name);
+            }
             iob->disconnectPort(id_T);
         }
         iob->params[ctx->id("OLOGIC_DDR")] = Property(1, 1);
@@ -316,10 +372,13 @@ void Spartan6Impl::pack_oddr()
             if (ci->ports.count(p))
                 ci->disconnectPort(p);
         dead.insert(ci->name);
-        if (c1->users.entries() == 0)
+        if (inv && c1->users.entries() == 0)
             dead.insert(inv->name);
         log_info("ODDR2 %s -> %s/OLOGIC%s\n", ctx->nameOf(ci), tile.c_str(), k.c_str());
     }
+    for (IdString name : t_oddrs)
+        log_error("ODDR2 %s: drives a pad's T but the pad's data isn't from an ODDR2\n",
+                  ctx->nameOf(ctx->cells.at(name).get()));
     for (IdString name : dead) {
         CellInfo *c = ctx->cells.at(name).get();
         std::vector<IdString> ports;
@@ -353,18 +412,26 @@ void Spartan6Impl::pack_iddr()
         std::string tile = bel.substr(0, bel.find('/'));
         std::string k = bel.substr(bel.find('['));
         NetInfo *c0 = ci->getPort(ctx->id("C0")), *c1 = ci->getPort(ctx->id("C1"));
-        CellInfo *inv = c1 ? c1->driver.cell : nullptr;
-        bool is_inv = inv && (inv->type == id_INV || (inv->type == id_LUT1 && inv->params.count(id_INIT) &&
-                                                      (inv->params.at(id_INIT).as_int64() & 3) == 1));
-        if (!c0 || !is_inv || inv->getPort(inv->type == id_INV ? id_I : id_I0) != c0)
-            log_error("IDDR2 %s: C1 must be C0 inverted (C0 = clk, C1 = ~clk) for now\n", ctx->nameOf(ci));
+        if (!c0 || !c1)
+            log_error("IDDR2 %s: C0 and C1 must both be connected\n", ctx->nameOf(ci));
+        // C1 = ~C0, or two clocks, as for ODDR2.
+        CellInfo *inv = c1->driver.cell;
+        bool inverted = inv && (inv->type == id_INV || (inv->type == id_LUT1 && inv->params.count(id_INIT) &&
+                                                        (inv->params.at(id_INIT).as_int64() & 3) == 1)) &&
+                        inv->getPort(inv->type == id_INV ? id_I : id_I0) == c0;
+        if (!inverted)
+            inv = nullptr;
 
         CellInfo *ddr = ctx->createCell(ctx->idf("%s$ioi_ddr", ci->name.c_str(ctx)), id_IOI_DDR);
         ddr->addInput(ctx->id("CLK0"));
         ddr->addInput(ctx->id("CLK1"));
         ddr->addOutput(id_CLK);
-        ddr->connectPort(ctx->id("CLK0"), c0);
+        // The IOI_DDR's CLK0 line feeds the site's CLK1 and vice versa
+        // (crosswise): with two clocks, C0 goes on CLK1.
+        ddr->connectPort(ctx->id("CLK0"), inverted ? c0 : c1);
         ddr->connectPort(ctx->id("CLK1"), c0);
+        if (!inverted)
+            ddr->params[ctx->id("TWO_CLOCKS")] = Property(1, 1);
         NetInfo *dclk = ctx->createNet(ctx->idf("%s$ddrclk", ci->name.c_str(ctx)));
         ddr->connectPort(id_CLK, dclk);
         ddr->attrs[id_BEL] = tile + "/IOI_DDR" + k;
@@ -373,6 +440,8 @@ void Spartan6Impl::pack_iddr()
         for (auto &p : ci->params)
             il->params[p.first] = p.second;
         il->params[ctx->id("PAD")] = iob->name.str(ctx);
+        if (!inverted)
+            il->params[ctx->id("TWO_CLOCKS")] = Property(1, 1);
         il->addInput(id_CLK);
         il->connectPort(id_CLK, dclk);
         auto move = [&](IdString from, IdString to, PortType dir) {
@@ -405,7 +474,7 @@ void Spartan6Impl::pack_iddr()
             if (ci->ports.count(p))
                 ci->disconnectPort(p);
         dead.insert(ci->name);
-        if (c1->users.entries() == 0)
+        if (inv && c1->users.entries() == 0)
             dead.insert(inv->name);
         log_info("IDDR2 %s -> %s/ILOGIC%s\n", ctx->nameOf(ci), tile.c_str(), k.c_str());
     }

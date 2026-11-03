@@ -99,6 +99,20 @@ void Spartan6Impl::pack_cmt()
             NetInfo *fb = ci->getPort(id_CLKFB);
             if (fb && fb->constant_value != IdString())
                 drop_port(ci, id_CLKFB);
+            // Feedback through a BUFG: through a BUFIO2FB, as ISE's map does
+            // (as for a PLL's CLKFBIN); the DLL then compensates for the same
+            // delay as ISE's (general routing would shift CLK0 by its own).
+            fb = ci->getPort(id_CLKFB);
+            if (fb && fb->driver.cell && fb->driver.cell->type == id_BUFG) {
+                CellInfo *f = ctx->createCell(ctx->idf("%s$bufio2fb", ci->name.c_str(ctx)), id_BUFIO2FB);
+                f->addInput(id_I);
+                f->addOutput(id_O);
+                f->connectPort(id_I, fb);
+                NetInfo *fo = ctx->createNet(ctx->idf("%s$bufio2fb_out", ci->name.c_str(ctx)));
+                f->connectPort(id_O, fo);
+                ci->disconnectPort(id_CLKFB);
+                ci->connectPort(id_CLKFB, fo);
+            }
             unbracket(ctx, ci);
             bypass_bufg(ctx, ci, id_CLKIN);
             // PSCLK from a pad: through general routing from the pad's input
@@ -200,15 +214,15 @@ void Spartan6Impl::pack_cmt()
         log_info("Packed %d DCMs and %d PLLs.\n", dcms, plls);
 }
 
-// Whether a BUFIO2FB at `bel` reaches the CLKFBIN of the (placed) PLL its
-// output feeds.
+// Whether a BUFIO2FB at `bel` reaches the feedback input of the (placed) PLL
+// or DCM its output feeds.
 bool Spartan6Impl::bufio2fb_reaches_pll(CellInfo *fb, BelId bel)
 {
     NetInfo *o = fb->getPort(id_O);
     if (!o)
         return true;
     for (auto &u : o->users) {
-        if (u.cell->type != id_PLL || !u.cell->attrs.count(id_BEL))
+        if (!u.cell->type.in(id_PLL, id_DCM) || !u.cell->attrs.count(id_BEL))
             continue;
         BelId pll = ctx->getBelByNameStr(u.cell->attrs.at(id_BEL).as_string());
         WireId target = ctx->getBelPinWire(pll, u.port);

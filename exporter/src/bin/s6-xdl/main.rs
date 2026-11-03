@@ -442,7 +442,8 @@ fn main() {
 
     let mut instances: Vec<Instance> = vec![];
     // OLOGIC (ODDR2) cells and their pads: (ologic bel, inst, iob bel, iob inst).
-    let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String)> = vec![];
+    // (OLOGIC, instance, its IOB, pad name, tristate register used)
+    let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String, bool)> = vec![];
     // ILOGIC (IDDR2) cells and their pads: (ilogic bel, inst, iob bel, iob inst).
     let mut ilogic_pads: Vec<(BelCoord, String, BelCoord, String)> = vec![];
     // (tile, site) -> (kind, cfg); slice instances are named after their site.
@@ -775,6 +776,10 @@ fn main() {
                         (ci, "O".into()),
                         Cand::IobOut { iob: bcrd, ologic, inst: inst.clone(), d: "D1", q: "OQ", iob_pin: "O" },
                     );
+                    // T from the OLOGIC's DDR tristate register (no T net here).
+                    if c.params.contains_key("OLOGIC_DDR_T") {
+                        cfg.push(vec!["TUSED".into(), "".into(), "0".into()]);
+                    }
                     if c.conns.contains_key("T") {
                         cfg.push(vec!["TUSED".into(), "".into(), "0".into()]);
                         pins.insert((ci, "T".into()), (inst.clone(), "T".into()));
@@ -804,14 +809,32 @@ fn main() {
                 let mut cfg = vec![
                     vec!["OUTFF".into(), inst.clone(), "".into()],
                     kv("CLK0INV", "CLK0".into()),
-                    kv("CLK1INV", "CLK1_B".into()),
+                    kv("CLK1INV", if c.params.contains_key("TWO_CLOCKS") { "CLK1" } else { "CLK1_B" }.into()),
                     kv("DDR_ALIGNMENT", p("DDR_ALIGNMENT").unwrap_or("NONE".into())),
                     kv("OMUX", "OUTFF".into()),
                     kv("OUTFFTYPE", "DDR".into()),
                     kv("SRINIT_OQ", init),
                     kv("SRTYPE_OQ", p("SRTYPE").unwrap_or("SYNC".into())),
                 ];
-                for (port, used) in [("D1", "D1USED"), ("D2", "D2USED"), ("OCE", "OCEUSED"), ("SR", "OSRUSED")] {
+                // A tristate ODDR2 on the same pad: the tristate register
+                // (TFF) of the same site.
+                let tff = p("TFF");
+                if let Some(t) = &tff {
+                    let tinit = p("T_INIT").map(|v| if v.contains('1') { "1" } else { "0" }.to_string()).unwrap_or("0".into());
+                    cfg.push(vec!["TFF".into(), t.clone(), "".into()]);
+                    cfg.push(kv("TDDR_ALIGNMENT", p("T_DDR_ALIGNMENT").unwrap_or("NONE".into())));
+                    cfg.push(kv("TFFTYPE", "DDR".into()));
+                    cfg.push(kv("TMUX", "TFF".into()));
+                    cfg.push(kv("SRINIT_TQ", tinit));
+                    cfg.push(kv("SRTYPE_TQ", p("T_SRTYPE").unwrap_or("SYNC".into())));
+                    if c.conns.contains_key("SR") {
+                        cfg.push(kv("TSRUSED", "0".into()));
+                    }
+                }
+                for (port, used) in [
+                    ("D1", "D1USED"), ("D2", "D2USED"), ("OCE", "OCEUSED"), ("SR", "OSRUSED"),
+                    ("T1", "T1USED"), ("T2", "T2USED"), ("TCE", "TCEUSED"),
+                ] {
                     if c.conns.contains_key(port) {
                         cfg.push(kv(used, "0".into()));
                         pins.insert((ci, port.into()), (inst.clone(), port.into()));
@@ -820,7 +843,7 @@ fn main() {
                 }
                 let pad = p("PAD").expect("OLOGIC without PAD");
                 let k = belname.trim_start_matches("OLOGIC");
-                ologic_pads.push((bcrd, inst.clone(), names.bel(x, y, &format!("IOB{k}")), pad));
+                ologic_pads.push((bcrd, inst.clone(), names.bel(x, y, &format!("IOB{k}")), pad, tff.is_some()));
                 instances.push(Instance { name: inst, kind: "OLOGIC2".into(), placement: Placement::Placed { tile, site }, cfg });
             }
             "ILOGIC" => {
@@ -835,7 +858,7 @@ fn main() {
                 let cfg = vec![
                     vec!["IFF".into(), inst.clone(), "".into()],
                     kv("CLK0INV", "CLK0".into()),
-                    kv("CLK1INV", "CLK1_B".into()),
+                    kv("CLK1INV", if c.params.contains_key("TWO_CLOCKS") { "CLK1" } else { "CLK1_B" }.into()),
                     kv("D2OBYP_SEL", "GND".into()),
                     kv("DDR_ALIGNMENT", p("DDR_ALIGNMENT").unwrap_or("NONE".into())),
                     kv("IFFMUX", "1".into()),
@@ -1322,7 +1345,7 @@ fn main() {
                         }
                         let (from_t, from_w) = from.unwrap_or_else(|| panic!("net {}: no named wire before ILOGIC {site} CLK", n.name));
                         let hop = |a: (&str, &str), b: (&str, &str)| {
-                            raw.find_path(a, b, 4).unwrap_or_else(|| panic!("net {}: no ISE path from {} to {}", n.name, a.1, b.1))
+                            raw.find_path(a, b, 4).unwrap_or_else(|| panic!("net {}: no ISE path from {}/{} to {}/{}", n.name, a.0, a.1, b.0, b.1))
                         };
                         let path = match &via {
                             Some(v) => {
@@ -1722,25 +1745,29 @@ fn main() {
                 cfg: vec![],
             });
         }
-        // Each ODDR2's OLOGIC drives its pad: OQ -> IOB O.
-        for (ologic, inst, iob, pad) in &ologic_pads {
-            let (_, ioi_tile, q_name, _) = names.pin_naming(*ologic, "OQ").expect("OLOGIC OQ naming");
-            let (iob_pips, iob_tile, _, iob_far) = names.pin_naming(*iob, "O").expect("IOB O naming");
-            let hop = raw
-                .find_path((&ioi_tile, &q_name), (&iob_tile, &iob_far), 4)
-                .unwrap_or_else(|| panic!("{inst}: no ISE path from {q_name} to {iob_far}"));
-            xnets.push(Net {
-                name: format!("{pad}_OQ"),
-                typ: NetType::Plain,
-                outpins: vec![NetPin { inst_name: inst.clone(), pin: "OQ".into() }],
-                inpins: vec![NetPin { inst_name: pad.clone(), pin: "O".into() }],
-                pips: hop
-                    .into_iter()
-                    .chain(iob_pips)
-                    .map(|(tile, wire_from, wire_to)| NetPip { tile, wire_from, wire_to, dir: PipDirection::UniBuf })
-                    .collect(),
-                cfg: vec![],
-            });
+        // Each ODDR2's OLOGIC drives its pad: OQ -> IOB O, and with a
+        // tristate ODDR2, TQ -> IOB T.
+        for (ologic, inst, iob, pad, tff) in &ologic_pads {
+            let links: &[(&str, &str)] = if *tff { &[("OQ", "O"), ("TQ", "T")] } else { &[("OQ", "O")] };
+            for &(out, inp) in links {
+                let (_, ioi_tile, q_name, _) = names.pin_naming(*ologic, out).expect("OLOGIC output naming");
+                let (iob_pips, iob_tile, _, iob_far) = names.pin_naming(*iob, inp).expect("IOB input naming");
+                let hop = raw
+                    .find_path((&ioi_tile, &q_name), (&iob_tile, &iob_far), 4)
+                    .unwrap_or_else(|| panic!("{inst}: no ISE path from {q_name} to {iob_far}"));
+                xnets.push(Net {
+                    name: format!("{pad}_{out}"),
+                    typ: NetType::Plain,
+                    outpins: vec![NetPin { inst_name: inst.clone(), pin: out.into() }],
+                    inpins: vec![NetPin { inst_name: pad.clone(), pin: inp.into() }],
+                    pips: hop
+                        .into_iter()
+                        .chain(iob_pips)
+                        .map(|(tile, wire_from, wire_to)| NetPip { tile, wire_from, wire_to, dir: PipDirection::UniBuf })
+                        .collect(),
+                    cfg: vec![],
+                });
+            }
         }
         eprintln!("added {repaired} ISE pip(s) prjcombine models as plain wires (buffers, terminations)");
         for (what, count) in &unnamed {

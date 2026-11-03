@@ -518,6 +518,16 @@ impl<'a> Gen<'a> {
                     self.set_bits(bcrd, attr, &[true]);
                 }
                 self.set_enum(bcrd, "MUX_SR", "INT");
+                // A tristate ODDR2 on the same pad: the tristate register, as
+                // a DDR register too; its INIT is also its set/reset value.
+                if c.params.contains_key("TFF") {
+                    for attr in ["FFT_SR_ENABLE", "FFT_CE_ENABLE", "FFT_CE_OR_DDR", "FFT_RANK1_BYPASS"] {
+                        self.set_bits(bcrd, attr, &[true]);
+                    }
+                    let init = c.params.get("T_INIT").is_some_and(|v| v.contains('1'));
+                    self.set_bits(bcrd, "FFT_INIT", &[init]);
+                    self.set_bits(bcrd, "FFT_SRVAL", &[init]);
+                }
                 // The IODELAY next to it, and the DDR clock enable.
                 let iodelay = cell.bel(self.slot(&format!("IODELAY{k}")));
                 self.set_bits(iodelay, "IDELAY_FIXED", &[true]);
@@ -540,15 +550,17 @@ impl<'a> Gen<'a> {
                 self.set_mux_bits_raw(tcrd, &format!("IMUX_ILOGIC_IOCE{k}"), &[2]);
             }
             "IOI_DDR" => {
-                // DDR clocking from one clock: both halves on, no alignment,
-                // and the CLK0 line inverted (it feeds the site's CLK1, as C1 =
-                // ~C0).
+                // DDR clocking: both halves on, no alignment; from one clock,
+                // the CLK0 line inverted (it feeds the site's CLK1, as C1 =
+                // ~C0); with two clocks, each on its own line.
                 let bcrd = cell.bel(self.slot(belname));
                 let tcrd = self.edev.bel_tile(bcrd);
                 let k: usize = belname.trim_start_matches("IOI_DDR[").trim_end_matches(']').parse().unwrap();
                 self.set_bits(bcrd, "ENABLE", &[true, true]);
                 self.set_enum(bcrd, "ALIGNMENT", "CLK1");
-                self.set_proginv(tcrd, &format!("IOI_IOCLK_OPTINV[{}]", 3 * k));
+                if !c.params.contains_key("TWO_CLOCKS") {
+                    self.set_proginv(tcrd, &format!("IOI_IOCLK_OPTINV[{}]", 3 * k));
+                }
             }
             other => return Err(format!("cell {}: type {other} not supported by the bitstream writer yet", c.name)),
         }

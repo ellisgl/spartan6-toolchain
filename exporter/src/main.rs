@@ -321,7 +321,31 @@ fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
                         match item {
                             SwitchBoxItem::Mux(m) => {
                                 let dst = tb.wire(db, slot, tcls, m.dst);
+                                // The ILOGIC clock path, used here only for the
+                                // CLK0 -> CFB0 route-through (DCM/PLL feedback),
+                                // as ISE can route it: ILOGIC[k]'s clock
+                                // (IMUX_ILOGIC_CLK[k]) from its own side's line
+                                // (IOI_ICLK[k]), and that not from I/O clock line
+                                // 3k (ISE's CLK0INTER, which only reaches the
+                                // site's CLK1).
+                                let dst_name = m.dst.to_string(db, tcls);
+                                let index = |name: &str, prefix: &str| {
+                                    name.rsplit_once(prefix).and_then(|(_, k)| k.trim_end_matches(']').parse::<usize>().ok())
+                                };
+                                let iclk = index(&dst_name, "IOI_ICLK[");
+                                let ilogic_clk = index(&dst_name, "IMUX_ILOGIC_CLK[");
                                 for src in m.src.keys() {
+                                    let src_name = src.tw.to_string(db, tcls);
+                                    if let Some(k) = iclk
+                                        && src_name.ends_with(&format!("IOI_IOCLK[{}]", 3 * k))
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(k) = ilogic_clk
+                                        && index(&src_name, "IOI_ICLK[").is_some_and(|j| j != k)
+                                    {
+                                        continue;
+                                    }
                                     let s = tb.wire(db, slot, tcls, src.tw);
                                     tb.pip(s, dst, "MUX", src.inv, r());
                                 }

@@ -110,6 +110,9 @@ talks to the Mojo over its USB serial port):
 | `ram32` | `tools/ram32-test.py` | RAM32X1S and RAM32X1D (8 lanes each) with initial contents |
 | `dspcasc` | `tools/dspcasc-test.py` | DSP48A1 cascades: PCOUT -> PCIN, BCOUT -> BCIN, CARRYOUT -> CARRYIN over three DSPs |
 | `preadd` | `tools/preadd-test.py` | DSP48A1 pre-adder and pre-subtracter (inferred by yosys) |
+| `oddrt` | `tools/oddrt-test.py` | tristated DDR outputs: ODDR2 data with an ODDR2 on T, 64 driven/released checks |
+| `oddr2clk` | `tools/oddr-test.py` | as `oddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
+| `iddr2clk` | `tools/iddr-test.py` | as `iddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
 | `psvar` | `tools/psvar-test.py` | DCM variable phase shift (PSEN / PSINCDEC / PSDONE), 1600 steps |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
@@ -441,7 +444,11 @@ primary source is kept, as an always-on pip) and factory-test wires
   its clock path (GCLK_I) and logic (I), one ISE net. The frequency synthesizer
   is enabled only when CLKFX/CLKFX180 is used. DLL_FREQUENCY_MODE = HIGH
   (without CLK90/270/2X/2X180, as ISE's DRC requires) and
-  DUTY_CYCLE_CORRECTION = FALSE are one bit each (checked against ISE). REG_BG in the
+  DUTY_CYCLE_CORRECTION = FALSE are one bit each (checked against ISE).
+  Feedback through a BUFG goes through a BUFIO2FB, as ISE's map does (and
+  as for a PLL): over an unused ILOGIC's CLK0 -> CFB0 route-through, whose
+  clock comes from its own side's I/O clock line CLK1INTER (the exporter
+  drops the ILOGIC clock mux inputs ISE can't route that way). REG_BG in the
   CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
   tiles.
 - **Global clocks as data:** a global clock reaches logic inputs only
@@ -529,12 +536,15 @@ Packer limits for now:
   51 (pre-subtract). Other devices use the xc6slx9-2 delay model.
 - **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as
   a DDR register, clocked through the I/O tile's IOI_DDR (prjcombine's DDR
-  clocking), which takes the clock on both inputs; C1 must be ~C0 (the LUT
-  inverter yosys makes), which inverts the CLK0 line feeding the site's CLK1
-  (IOI_IOCLK_OPTINV). The pad needs a LOC; a tristated DDR output isn't
-  supported yet. In XDL the IOI_DDR's inputs become the OLOGIC2's two clock
+  clocking). With C1 = ~C0 (the LUT inverter yosys makes) it takes C0 on
+  both inputs and inverts the CLK0 line feeding the site's CLK1
+  (IOI_IOCLK_OPTINV); with two clocks (e.g. a DCM's CLK0 and CLK180) each
+  goes on its own line, crosswise (C0 on the IOI_DDR's CLK1 input, which
+  feeds the site's CLK0). The pad needs a LOC. In XDL the IOI_DDR's inputs become the OLOGIC2's two clock
   pins (ISE's own path through the clock line used, crosswise as ISE pairs
-  them) and the OLOGIC drives the pad on its own net. ISE also masks frame
+  them) and the OLOGIC drives the pad on its own net. A tristated DDR
+  output: ISE requires T from an ODDR2 too (same clocks); it becomes the
+  same OLOGIC's tristate register (TFF, T1/T2/TCE, TQ to the pad's T). ISE also masks frame
   28 of the column region (GLUTMASK_HCLK.FRAME28; in the clock column, which
   has no GLUTMASK bel in prjcombine, frame 18 of its HCLK bits).
 - **IDDR2 (DDR input):** the same on the pad's ILOGIC (Q0 on the site's Q4,
