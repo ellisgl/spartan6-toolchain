@@ -65,6 +65,7 @@ talks to the Mojo over its USB serial port):
 | `falledge` | `tools/falledge-test.py` | falling-edge FF, SRL and RAM (slice clock inversion) |
 | `latch` | `tools/latch-test.py` | latches: LDCE, LDPE, inverted gate |
 | `wideram` | `tools/wideram-test.py` | RAM64X1D, RAM128X1D, RAM256X1S with initial contents |
+| `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -205,10 +206,10 @@ three chained 32-bit additions and an XOR, launched every 4 test clocks and
 captured both after 1 clock (timed) and after 3 (settled); mismatches are
 counted. The sweep rewrites the PLL settings in the routed design and runs
 s6-bitgen for each frequency, so placement and routing stay fixed. On the
-Mojo V3 at room temperature it passes up to 162.5 MHz and starts failing at
-166.7 MHz; worst-case predictions for the same routing are 98.8 MHz (nextpnr)
-and 106.8 MHz (ISE), a ~1.5x margin, as expected between the slow corner
-(85 C, 1.14 V) and a board on a desk.
+Mojo V3 at room temperature it passes up to 180 MHz and starts failing at
+183.3 MHz; worst-case predictions for the same routing are 105.2 MHz
+(nextpnr) and 116.4 MHz (ISE), a ~1.55x margin, as expected between the slow
+corner (85 C, 1.14 V) and a board on a desk. The PLL locks at every point.
 
 prjcombine's SDF parser needed a few additions for ISE's output (operating
 conditions, `PATHPULSE`, `RECREM`, single-value delays, escaped names and
@@ -380,12 +381,19 @@ primary source is kept, as an always-on pip) and factory-test wires
   does for all 22 legal values (checked against ISE for each). REG_BG in the
   CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
   tiles.
-- **Global clocks stay on the clock network:** clock input muxes fed from
-  general routing (chip database pip flag 2) aren't available to nets
-  driven by a BUFG; router2 otherwise sometimes finished a clock through
-  the fabric (~1 ns of skew, a hold violation in `dll`).
+- **Global clocks stay on the clock network:** pips from general routing
+  into the clock network (clock input muxes, the CMT's fabric clock outputs
+  onto the row clocks; chip database pip flag 2) aren't available to nets
+  driven by a BUFG. router2 otherwise sometimes left the clock network and
+  came back in (~1 ns of skew and a hold violation in `dll`; a route ISE
+  rejects in `pll2`).
 - **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
-  BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV fed from the BUFG on CLKIN2.
+  BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV likewise from a clock pad,
+  on CLKIN1 or CLKIN2 (whichever the BUFIO2 reaches), else from a BUFG on
+  CLKIN2. (Fed from the fabric BUFG, the PLL missed LOCKED at some
+  multipliers, e.g. x9 and x10, though its outputs were right.) COMPENSATION
+  = SYSTEM/SOURCE_SYNCHRONOUS (PLL_BASE's default) with CLKFBOUT wired
+  straight to CLKFBIN becomes INTERNAL, as ISE's map does.
 - **Timing:** the speed grade comes from the device name (default -2);
   DSP cells get a timing variant by pipeline registers and constant OPMODE
   (`prePlace`); bus pins are timed through bit 0 (`dsp_timing_pin`).
@@ -443,9 +451,8 @@ Packer limits for now:
   CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
   uses RAM32M instead), DCM CLK_FEEDBACK = 2X, DLL_FREQUENCY_MODE = HIGH,
   phase shifting (CLKOUT_PHASE_SHIFT, PSDONE) and duty-cycle correction off,
-  PLL compensation other than INTERNAL, PLL CLKINSEL = CLKIN2 driven
-  dynamically.
-- **Untested:** PLL fed through CLKIN1 (BUFIO2) rather than CLKIN2.
+  PLL feedback through a BUFG (ISE routes it through an ILOGIC site to a
+  BUFIO2FB, which isn't modelled), PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).
 - **Latches (LDCE/LDPE):** slice FFs in latch mode (`FF_LATCH`, slice-wide,

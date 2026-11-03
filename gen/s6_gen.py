@@ -16,6 +16,20 @@ from os import path
 UARCH = "spartan6"
 
 
+def _base(name):
+    return name.rsplit(".", 1)[-1]
+
+
+def is_general(name):
+    """General interconnect (not the clock network)."""
+    return _base(name).startswith(("IMUX_LOGICIN", "IMUX_GFAN", "LOGICIN", "SNG_", "DBL_", "QUAD_", "OUT["))
+
+
+def is_clock_net(name):
+    """Clock network wires: clock input muxes, CMT outputs, row/tile clocks."""
+    return _base(name).startswith(("IMUX_CLK", "CMT_OUT", "HCLK", "GCLK"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--nextpnr", required=True, help="nextpnr source tree (for himbaechel_dbgen)")
@@ -52,12 +66,12 @@ def main():
             if p["kind"] == "SITE" and len(ref) >= 4 and ref[2] in ("MUX_ADI1", "MUX_BDI1", "MUX_CDI1") \
                     and ref[3] == "ALT" and "MC31" not in names[p["src"]]:
                 pip.flags = 1
-            # Flag 2: a clock input mux (IMUX_CLK) fed from general routing,
-            # not a tile clock (HCLK). The uarch keeps global clock nets off
-            # these, so their clock pins are reached through the clock
-            # network (router2 otherwise sometimes finishes through the
-            # fabric, adding ~1 ns of skew).
-            if names[p["dst"]].startswith("IMUX_CLK") and not names[p["src"]].startswith("HCLK"):
+            # Flag 2: from general routing into the clock network (a clock
+            # input mux, or the CMT's fabric clock outputs onto the row
+            # clocks). The uarch keeps global clock nets off these: router2
+            # otherwise sometimes left the clock network and came back in
+            # (~1 ns of skew, or a route ISE rejects).
+            if is_general(names[p["src"]]) and is_clock_net(names[p["dst"]]):
                 pip.flags |= 2
         for b in tt_json["bels"]:
             bel = tt.create_bel(b["name"], b["type"], b["z"])

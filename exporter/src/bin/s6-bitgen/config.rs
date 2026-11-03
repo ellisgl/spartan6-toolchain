@@ -802,7 +802,9 @@ impl<'a> Gen<'a> {
                 }
                 let intfb = match p("COMPENSATION").as_deref().unwrap_or("SYSTEM_SYNCHRONOUS") {
                     "INTERNAL" => 2,
-                    _ => return Err(format!("{}: PLL COMPENSATION other than INTERNAL is not supported yet", c.name)),
+                    // The uarch turns direct-feedback SYSTEM/SOURCE_SYNCHRONOUS
+                    // into INTERNAL, as ISE's map does.
+                    v => return Err(format!("{}: PLL COMPENSATION = {v} is not supported yet", c.name)),
                 };
                 self.set_raw_num(bcrd, "PLL_INTFB", intfb);
                 let clkin2 = p("CLKIN_SOURCE").as_deref() == Some("CLKIN2");

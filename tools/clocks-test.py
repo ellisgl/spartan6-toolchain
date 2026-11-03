@@ -19,10 +19,10 @@ CONFIGS = {
     1: [("DCM CLKFX", 70e6), ("PLL CLKOUT0", 80e6), ("PLL CLKOUT1", 400e6 / 12)],  # tests/clocks
     2: [("DCM CLKFX", 75e6), ("PLL CLKOUT0", 125e6), ("PLL CLKOUT1", 500e6 / 7)],  # tests/clocks2
 }
-# LOCKED bits expected per config (bit 0 DCM, bit 1 PLL). In config 2 the PLL
-# runs at the right frequencies but never raises LOCKED; ISE's own build of
-# the same design does exactly the same on the Mojo V3.
-LOCKED = {1: 0b11, 2: 0b01}
+# LOCKED bits expected per config (bit 0 DCM, bit 1 PLL). (The PLL used to
+# miss LOCKED at some multipliers when clocked from the fabric BUFG; it's now
+# fed from the pad through a BUFIO2, as ISE's map does.)
+LOCKED = {1: 0b11, 2: 0b11}
 
 
 def main():
