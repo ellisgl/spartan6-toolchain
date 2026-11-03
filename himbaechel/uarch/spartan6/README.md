@@ -11,12 +11,13 @@ Spartan-6 database.
   LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), CARRY4, MUXF7/MUXF8,
   RAMB16BWER/RAMB8BWER, DSP48A1, RAM64X1S, RAM32M, RAM64M, RAM128X1S, SRLC32E, SRL16E, I/O
   (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25, PULLUP/PULLDOWN, DRIVE,
-  SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180) and
+  SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180, and the DLL
+  outputs with CLK_FEEDBACK = 1X) and
   PLL_BASE/PLL_ADV (COMPENSATION INTERNAL), falling-edge FFs/RAM/SRLs
   (slice clock inversion), latches (LDCE/LDPE).
 - **Not yet:** DSP cascades, SRLs using both Q and Q31, the other LUTRAM
-  primitives,
-  DCM DLL outputs. Timing comes from a delay model fitted
+  primitives, DCM 2X feedback and phase shifting. Global clock nets reach
+  clock pins only through the clock network (pip flag 2). Timing comes from a delay model fitted
   to ISE's timing output (see the [xc6slx9-pnr](https://github.com/ellisgl/xc6slx9-pnr)
   README), within about +-9% of ISE's analyser on the test designs.
 - **Checked against ISE 14.7:** designs placed and routed here are converted

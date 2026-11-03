@@ -112,6 +112,16 @@ bool Spartan6Impl::checkPipAvail(PipId pip) const
     return true;
 }
 
+bool Spartan6Impl::checkPipAvailForNet(PipId pip, const NetInfo *net) const
+{
+    if (!checkPipAvail(pip))
+        return false;
+    if ((chip_pip_info(ctx->chip_info, pip).flags & 2) && net && net->driver.cell &&
+        net->driver.cell->type == id_BUFGMUX)
+        return false;
+    return true;
+}
+
 bool Spartan6Impl::clk_inverted(const CellInfo *cell) const
 {
     auto it = cell->params.find(id_CLK_INV);
