@@ -385,7 +385,9 @@ primary source is kept, as an always-on pip) and factory-test wires
   shift (CLKOUT_PHASE_SHIFT = FIXED, PHASE_SHIFT -255 .. 255): twice the
   magnitude plus a sign bit, wrapping to the equivalent shift the other way
   from 128 on (checked against ISE at 15 values). The frequency synthesizer
-  is enabled only when CLKFX/CLKFX180 is used. REG_BG in the
+  is enabled only when CLKFX/CLKFX180 is used. DLL_FREQUENCY_MODE = HIGH
+  (without CLK90/270/2X/2X180, as ISE's DRC requires) and
+  DUTY_CYCLE_CORRECTION = FALSE are one bit each (checked against ISE). REG_BG in the
   CMT regulators: every DCM tile with a PLL in use, else the used DCMs'
   tiles.
 - **Global clocks stay on the clock network:** pips from general routing
@@ -462,9 +464,8 @@ Packer limits for now:
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** DSP48A1 cascades (PCIN/BCIN/
   CARRYIN), an SRL using both Q and Q31 (MC31 cascade), RAM32X1S/D (yosys
-  uses RAM32M instead), DCM DLL_FREQUENCY_MODE = HIGH,
-  variable phase shift (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE) and
-  duty-cycle correction off,
+  uses RAM32M instead), DCM variable phase shift
+  (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE),
   PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic).

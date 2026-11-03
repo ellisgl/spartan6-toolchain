@@ -690,16 +690,20 @@ impl<'a> Gen<'a> {
                 if !matches!(feedback.as_str(), "1X" | "2X" | "NONE") {
                     return Err(format!("{}: DCM CLK_FEEDBACK = {feedback} is not supported", c.name));
                 }
-                for (attr, ok) in [
-                    ("DLL_FREQUENCY_MODE", "LOW"),
-                    ("DUTY_CYCLE_CORRECTION", "TRUE"),
-                ] {
-                    if let Some(v) = p(attr)
-                        && v != ok
-                    {
-                        return Err(format!("{}: DCM {attr} = {v} is not supported yet ({ok})", c.name));
+                let dll_high = match p("DLL_FREQUENCY_MODE").as_deref().unwrap_or("LOW") {
+                    "LOW" => false,
+                    "HIGH" => {
+                        // As ISE's DRC: no CLK90/CLK270/CLK2X/CLK2X180 then.
+                        for out in ["CLK90", "CLK270", "CLK2X", "CLK2X180"] {
+                            if used.contains(&out) {
+                                return Err(format!("{}: DCM output {out} can't be used with DLL_FREQUENCY_MODE = HIGH", c.name));
+                            }
+                        }
+                        true
                     }
-                }
+                    v => return Err(format!("{}: DCM DLL_FREQUENCY_MODE = {v} is not valid", c.name)),
+                };
+                let dcc = p("DUTY_CYCLE_CORRECTION").map(|v| v != "FALSE").unwrap_or(true);
                 let dll = feedback != "NONE";
                 let phase_mode = p("CLKOUT_PHASE_SHIFT").unwrap_or("NONE".into());
                 if !matches!(phase_mode.as_str(), "NONE" | "FIXED") {
@@ -729,7 +733,7 @@ impl<'a> Gen<'a> {
                 self.set_raw_num(bcrd, "DESKEW_ADJUST", deskew);
                 for (attr, v) in [
                     ("CLKFXDV_DIVIDE", 3u64), ("CLKIN_CLKFB_ENABLE", 1),
-                    ("DUTY_CYCLE_CORRECTION", 1), ("REG_DFS_C", 5), ("SPREAD_SPECTRUM", 0x7f),
+                    ("DUTY_CYCLE_CORRECTION", dcc as u64), ("REG_DFS_C", 5), ("SPREAD_SPECTRUM", 0x7f),
                 ] {
                     self.set_raw_num(bcrd, attr, v);
                 }
@@ -774,6 +778,9 @@ impl<'a> Gen<'a> {
                     }
                     // Shared with REG_DLL_S's default bits (written above).
                     self.set_raw_num(bcrd, "CLK_FEEDBACK_DISABLE", 0);
+                    if dll_high {
+                        self.set_raw_num(bcrd, "DLL_FREQUENCY_MODE", 1);
+                    }
                     if feedback == "2X" {
                         self.set_raw_num(bcrd, "CLK_FEEDBACK_2X", 1);
                     }
