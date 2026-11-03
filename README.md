@@ -1,5 +1,7 @@
 # spartan6-toolchain
 
+[![CI](https://github.com/ellisgl/spartan6-toolchain/actions/workflows/ci.yml/badge.svg)](https://github.com/ellisgl/spartan6-toolchain/actions/workflows/ci.yml)
+
 An open-source FPGA toolchain for the Xilinx Spartan-6 xc6slx9 (developed on
 the Mojo V3, TQG144): Verilog to a bitstream with no vendor tools.
 

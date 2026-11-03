@@ -15,6 +15,8 @@ YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
 # Everything synth_xilinx emits for xc6s is supported (see README for limits).
 SYNTH_FLAGS    ?=
+# Extra nextpnr cmake flags (CI: -DCMAKE_CXX_COMPILER_LAUNCHER=ccache).
+NPNR_CMAKE_FLAGS ?=
 
 BUILD    := build
 EXPORTER := $(BUILD)/target/release/s6-export
@@ -32,7 +34,8 @@ all: $(CHIPDB) $(NPNR_BIN)
 
 $(NPNR_BLD)/Makefile:
 	cmake -S $(NEXTPNR) -B $(NPNR_BLD) -DARCH=himbaechel -DHIMBAECHEL_UARCH=spartan6 \
-		-DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_PYTHON=OFF -DBUILD_TESTS=OFF
+		-DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF -DBUILD_PYTHON=OFF -DBUILD_TESTS=OFF \
+		$(NPNR_CMAKE_FLAGS)
 
 # Any file under nextpnr/ may change: let cmake decide what to rebuild.
 $(NPNR_BIN): $(NPNR_BLD)/Makefile FORCE

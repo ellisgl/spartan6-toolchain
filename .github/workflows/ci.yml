@@ -1,0 +1,73 @@
+# Build everything and place, route and bitgen every test design. No ISE here,
+# so no byte-for-byte cross-check: that stays `make ise-check` on a machine
+# with ISE.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ccache libeigen3-dev \
+            libboost-filesystem-dev libboost-program-options-dev libboost-iostreams-dev \
+            libboost-system-dev libboost-thread-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: exporter -> ../build/target
+
+      - uses: YosysHQ/setup-oss-cad-suite@v3
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ hashFiles('nextpnr/**/*.cc', 'nextpnr/**/*.h') }}
+          restore-keys: ccache-
+
+      - name: prjcombine database
+        uses: actions/cache@v4
+        with:
+          path: build/spartan6-*.zstd
+          key: prjcombine-db-${{ hashFiles('Makefile') }}
+          restore-keys: prjcombine-db-
+
+      - name: Build nextpnr and the chip database
+        run: make -j$(nproc) NPNR_CMAKE_FLAGS=-DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Chip database checks
+        run: make check
+
+      - name: Rust tests
+        run: CARGO_TARGET_DIR=build/target cargo test --release --manifest-path exporter/Cargo.toml
+
+      - name: Place, route and bitgen the test designs
+        run: |
+          fail=0
+          for d in tests/*/; do
+            t=$(basename "$d")
+            [ "$t" = common ] && continue
+            if make bit TEST="$t" > "build/$t.log" 2>&1; then
+              echo "$t: ok ($(grep -o "Max frequency for clock.*" build/$t/nextpnr.log | tail -1))"
+            else
+              echo "::error::$t failed"; tail -30 "build/$t.log"; fail=1
+            fi
+          done
+          exit $fail
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bitstreams
+          path: build/*/design.bin
