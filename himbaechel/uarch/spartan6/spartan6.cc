@@ -443,15 +443,20 @@ bool Spartan6Impl::slice_bypass_ok(int x, int y, int base, bool explain_invalid)
             if (const NetInfo *sel = wide[letter]->getPort(id_S))
                 need(sel);
         }
-        // RAM/SRL data in (DI1) through the bypass pin. The C LUT can instead
-        // take the D LUT's data (DX, CDI1MUX = DX), which RAM128X1S uses.
+        // RAM/SRL data in (DI1) through the bypass pin. A RAM64 LUT can instead
+        // take the letter above's data (C, B: DX; A: B's DI1), as the wide
+        // RAMs do.
         const CellInfo *lr = cell_at(x, y, zl + s6z::LUT6);
         if (lr && lr->type == id_SLICE_LUTRAM)
             if (const NetInfo *di = lr->getPort(id_DI1)) {
-                const CellInfo *dlut = cell_at(x, y, base + 3 * 8 + s6z::LUT6);
-                bool via_dx = letter == 2 && dlut && dlut->type == id_SLICE_LUTRAM && dlut->getPort(id_DI1) == di &&
-                              lr->params.count(id_RAM_MODE) && lr->params.at(id_RAM_MODE).as_string() == "RAM64";
-                if (!via_dx)
+                auto ram64 = [&](const CellInfo *c) {
+                    return c && c->type == id_SLICE_LUTRAM && c->params.count(id_RAM_MODE) &&
+                           c->params.at(id_RAM_MODE).as_string() == "RAM64";
+                };
+                const CellInfo *above = letter == 3 ? nullptr
+                                        : cell_at(x, y, base + (letter == 0 ? 1 : 3) * 8 + s6z::LUT6);
+                bool via_alt = ram64(lr) && above && above->type == id_SLICE_LUTRAM && above->getPort(id_DI1) == di;
+                if (!via_alt)
                     need(di);
             }
         // 7th / 8th write address bit: CX / BX, shared by the slice's RAM LUTs.

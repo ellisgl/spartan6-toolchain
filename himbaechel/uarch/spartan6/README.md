@@ -8,18 +8,20 @@ Spartan-6 database.
 
 - **Devices:** xc6slx9 only (`--device xc6slx9-2tqg144`).
 - **Supported:** most of what `synth_xilinx -family xc6s` emits by default:
-  LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), CARRY4, MUXF7/MUXF8,
-  RAMB16BWER/RAMB8BWER, DSP48A1, RAM64X1S, RAM32M, RAM64M, RAM128X1S, SRLC32E, SRL16E, I/O
-  (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25, PULLUP/PULLDOWN, DRIVE,
-  SLEW), BUFG and the global clock network, DCM_SP (CLKFX/CLKFX180, and the DLL
-  outputs with CLK_FEEDBACK = 1X) and
-  PLL_BASE/PLL_ADV (COMPENSATION INTERNAL), falling-edge FFs/RAM/SRLs
-  (slice clock inversion), latches (LDCE/LDPE).
-- **Not yet:** DSP cascades, SRLs using both Q and Q31, the other LUTRAM
-  primitives, DCM 2X feedback and phase shifting. Global clock nets reach
-  clock pins only through the clock network (pip flag 2). Timing comes from a delay model fitted
-  to ISE's timing output (see the [xc6slx9-pnr](https://github.com/ellisgl/xc6slx9-pnr)
-  README), within about +-9% of ISE's analyser on the test designs.
+  LUTs (with LUT6/LUT5 pairing), FFs (including 5FFs), latches (LDCE/LDPE),
+  falling-edge FFs/RAM/SRLs (slice clock inversion), CARRY4, MUXF7/MUXF8,
+  RAMB16BWER/RAMB8BWER, DSP48A1, distributed RAM (RAM64X1S, RAM32M, RAM64M,
+  RAM64X1D, RAM128X1S/D, RAM256X1S), SRLC32E (including Q31 chains) and
+  SRL16E, I/O (IBUF/OBUF/OBUFT/IOBUF, LVTTL/LVCMOS33/LVCMOS25,
+  PULLUP/PULLDOWN, DRIVE, SLEW), BUFG and the global clock network, DCM_SP
+  (CLKFX/CLKFX180, and the DLL outputs with CLK_FEEDBACK = 1X) and
+  PLL_BASE/PLL_ADV (COMPENSATION INTERNAL).
+- **Not yet:** DSP cascades, SRLs using both Q and Q31, RAM32X1S/D, DCM 2X
+  feedback and phase shifting. Global clock nets reach clock pins only
+  through the clock network (pip flag 2). Timing comes from a delay model
+  fitted to ISE's timing output (see the
+  [xc6slx9-pnr](https://github.com/ellisgl/xc6slx9-pnr) README), within
+  about +-9% of ISE's analyser on the test designs.
 - **Checked against ISE 14.7:** designs placed and routed here are converted
   to XDL and pass ISE's DRC, and the open bitstream writer's output is
   byte-identical to ISE bitgen's for the same placement and routing. Test
