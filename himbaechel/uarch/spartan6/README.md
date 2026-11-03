@@ -19,7 +19,7 @@ Spartan-6 database.
   PLL_BASE/PLL_ADV (INTERNAL; SYSTEM/SOURCE_SYNCHRONOUS with direct
   feedback, which becomes INTERNAL as in ISE's map, or feedback through a
   BUFG, which gets a BUFIO2FB reached through an unused ILOGIC).
-- **Not yet:** DSP cascades, SRLs using both Q and Q31, RAM32X1S/D, DCM 2X
+- **Not yet:** DSP cascades, RAM32X1S/D, DCM 2X
   feedback and phase shifting. Global clock
   nets stay on the clock network (pip flag 2). Timing comes from a delay model
   fitted to ISE's timing output (see the

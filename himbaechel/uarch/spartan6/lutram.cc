@@ -42,7 +42,7 @@ NEXTPNR_NAMESPACE_BEGIN
 //             ADDRD, which is also the D LUT's read address.)
 //   SRLC32E:  any SLICEM LUT6; address on A2..A6 (A1 tied high), D on DI1,
 //             CE on WE. RAMMODE SRL32. A used Q31 (cascade) is taken from Q
-//             at address 31 when Q is unused.
+//             at address 31 (from a copy of the SRL when Q is used too).
 // An inverted clock (IS_*CLK_INVERTED) becomes CLK_INV = 1 on the LUT cells;
 // the slice inverts its clock for all of them and its FFs (CLKINV).
 //   SRL16E:   address on A2..A5 (A1, A6 tied high), D on DI2, CE on WE.
@@ -81,7 +81,7 @@ std::string init_bits(const CellInfo *ci, IdString p, int n)
 void Spartan6Impl::pack_lutram()
 {
     NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
-    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0, ncasc = 0;
+    int n64 = 0, n32m = 0, n64m = 0, n128 = 0, nsrl = 0, ncasc = 0, ndup = 0;
     std::vector<CellInfo *> ram64, ram32m, ram128, srl;
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
@@ -366,7 +366,8 @@ void Spartan6Impl::pack_lutram()
     }
 
     // SRLC32E / SRL16E: one LUT anywhere in a SLICEM.
-    for (CellInfo *ci : srl) {
+    for (size_t si = 0; si < srl.size(); si++) {
+        CellInfo *ci = srl[si];
         bool srl16 = ci->type == id_SRL16E;
         if (clk_inv(ci, id_IS_CLK_INVERTED))
             ci->params[id_CLK_INV] = Property(1, 1);
@@ -396,13 +397,28 @@ void Spartan6Impl::pack_lutram()
         // Cascade output Q31 (yosys chains SRLC32Es for longer shift
         // registers): when Q isn't used, Q at address 31 is the same bit, so
         // Q31's net moves to Q and the address is tied high; the cascade is
-        // then ordinary routing. (Using both would need the slice's MC31
-        // path.)
+        // then ordinary routing. When Q is used too, a copy of the SRL (same
+        // D, CE, clock and initial contents, address 31) gives Q31 on its Q
+        // instead of the slice's MC31 path: one more LUT, no placement rules.
         NetInfo *q31 = ci->getPort(id_Q31);
         NetInfo *q = ci->getPort(id_Q);
-        if (q31 && q31->users.entries()) {
-            if (q && q->users.entries())
-                log_error("SRLC32E %s: Q and Q31 both used (MC31 cascade) is not supported yet\n", ctx->nameOf(ci));
+        if (q31 && q31->users.entries() && q && q->users.entries()) {
+            CellInfo *dup = ctx->createCell(ctx->idf("%s$q31", ci->name.c_str(ctx)), id_SRLC32E);
+            dup->params = ci->params;
+            for (IdString p : {id_D, id_CE, id_CLK}) {
+                if (NetInfo *n = ci->getPort(p)) {
+                    dup->addInput(p);
+                    dup->connectPort(p, n);
+                }
+            }
+            for (int i = 0; i < 5; i++)
+                add_in(dup, ctx->idf("A[%d]", i), vcc);
+            ci->disconnectPort(id_Q31);
+            dup->addOutput(id_Q);
+            dup->connectPort(id_Q, q31);
+            srl.push_back(dup); // packed like any other, later in this loop
+            ndup++;
+        } else if (q31 && q31->users.entries()) {
             if (q)
                 ci->disconnectPort(id_Q);
             ci->disconnectPort(id_Q31);
@@ -503,6 +519,8 @@ void Spartan6Impl::pack_lutram()
                  n64m, n128, nsrl);
     if (ncasc)
         log_info("%d SRLC32E cascade outputs (Q31) taken from Q at address 31.\n", ncasc);
+    if (ndup)
+        log_info("%d SRLC32Es using both Q and Q31 duplicated (the copy gives Q31).\n", ndup);
 }
 
 NEXTPNR_NAMESPACE_END
