@@ -114,6 +114,8 @@ talks to the Mojo over its USB serial port):
 | `oddr2clk` | `tools/oddr-test.py` | as `oddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
 | `iddr2clk` | `tools/iddr-test.py` | as `iddr`, with C0/C1 from a DCM's CLK0 and CLK180 |
 | `lvds` | `tools/lvds-test.py` | LVDS_33 OBUFDS -> IBUFDS with DIFF_TERM, looped back by jumpers P41 -> P6, P40 -> P5 |
+| `iddrsr` | `tools/iddrsr-test.py` | IDDR2 with its reset from logic |
+| `oddrtsr` | `tools/oddrtsr-test.py` | ODDR2 set/reset shared by a pad's data and tristate registers, 12 cases |
 | `psvar` | `tools/psvar-test.py` | DCM variable phase shift (PSEN / PSINCDEC / PSDONE), 1600 steps |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
@@ -558,6 +560,8 @@ Packer limits for now:
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** PLL CLKINSEL driven dynamically.
+  ISE requires both inputs from LOC-constrained BUFIO2s (two clock pins)
+  that reach the PLL's site; the Mojo V3 has one clock source.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   six measured fall back to the OPMODE-from-logic numbers (pessimistic);
   that includes 05 (multiply plus PCIN, which yosys uses for cascades) and
@@ -577,9 +581,15 @@ Packer limits for now:
   has no GLUTMASK bel in prjcombine, frame 18 of its HCLK bits).
 - **IDDR2 (DDR input):** the same on the pad's ILOGIC (Q0 on the site's Q4,
   Q1 on Q3), clocked through the IOI_DDR the same way; the pad's input goes
-  to the ILOGIC's D on its own XDL net. R/S aren't supported yet (ISE takes
-  the ILOGIC's SR from the I/O tile's SR line, which prjcombine models
-  differently).
+  to the ILOGIC's D on its own XDL net. R or S comes over the SR line the
+  ILOGIC shares with its OLOGIC (MUX_SR = OLOGIC_SR, as ISE routes it; the
+  exporter gives the ILOGIC's SR pin that wire, since ISE's ILOGIC2 SR pin
+  is only reachable that way).
+- **ODDR2 set/reset:** R or S on the OLOGIC's SR; a tristate ODDR2 must
+  share the data ODDR2's signal or neither use one (one SR line; ISE's
+  rule), the kinds may differ. With R/S used, a register's init and
+  set/reset value (SRINIT_OQ / SRINIT_TQ) follow its kind, as ISE's map
+  folds them.
 - **BUFG inputs:** a pad only feeds BUFGs over the dedicated clock path when
   that path reaches one (clock-capable pins); otherwise through general
   routing from the data input, on any free BUFGMUX. BUFGs use I0 only.

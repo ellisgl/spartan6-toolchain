@@ -372,6 +372,10 @@ enum Cand {
     /// A site pin whose routing wire, naming entry and XDL name differ, e.g.
     /// RAMB16 DIA16: wire of BRAM[1] pin DIA[0], naming BRAM[0] RAMB16_DIA16.
     Pin { wire: (BelCoord, String), naming: (BelCoord, String), xdl_pin: String, inst: String, output: bool },
+    /// An ILOGIC's SR from the SR line it shares with its OLOGIC (the
+    /// OLOGIC's SR wire; MUX_SR = OLOGIC_SR): ISE's ILOGIC2 SR pin, reached
+    /// from the I/O tile's SR line.
+    IlogicSr { ologic: BelCoord, ilogic: BelCoord, inst: String },
 }
 
 #[derive(Default)]
@@ -894,7 +898,7 @@ fn main() {
                 let inst = c.name.clone();
                 let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
                 let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
-                let cfg = vec![
+                let mut cfg = vec![
                     vec!["IFF".into(), inst.clone(), "".into()],
                     kv("CLK0INV", "CLK0".into()),
                     kv("CLK1INV", if c.params.contains_key("TWO_CLOCKS") { "CLK1" } else { "CLK1_B" }.into()),
@@ -903,11 +907,23 @@ fn main() {
                     kv("IFFMUX", "1".into()),
                     kv("IFFTYPE", "DDR".into()),
                     kv("SAME_EDGE_PIPELINED", "FALSE".into()),
-                    kv("SRINIT_Q", "0".into()),
+                    kv("SRINIT_Q", if c.params.get("SR_KIND").map(String::as_str) == Some("SET") { "1" } else { "0" }.into()),
                     vec!["D2OBYPSEL_GND".into(), format!("{inst}.D2OBYPSEL_GND"), "".into()],
                     vec!["D2OFFBYP_SRC".into(), format!("{inst}.D2OFFBYP_SRC"), "".into()],
                 ];
-                for (port, output) in [("CE0", false), ("SR", false), ("REV", false), ("Q3", true), ("Q4", true)] {
+                // Reset / set from logic (IDDR2 R or S), on the I/O tile's SR
+                // line.
+                if c.conns.contains_key("SR") {
+                    cfg.push(kv("SRUSED", "0".into()));
+                    cfg.push(kv("SRTYPE_Q", p("SRTYPE").unwrap_or("SYNC".into())));
+                }
+                if c.conns.contains_key("SR") {
+                    pins.insert((ci, "SR".into()), (inst.clone(), "SR".into()));
+                    let k = belname.trim_start_matches("ILOGIC");
+                    let ologic = names.bel(x, y, &format!("OLOGIC{k}"));
+                    cands.insert((ci, "SR".into()), Cand::IlogicSr { ologic, ilogic: bcrd, inst: inst.clone() });
+                }
+                for (port, output) in [("CE0", false), ("REV", false), ("Q3", true), ("Q4", true)] {
                     if c.conns.contains_key(port) {
                         pins.insert((ci, port.into()), (inst.clone(), port.into()));
                         cands.insert((ci, port.into()), Cand::Site { bcrd, pins: vec![port.into()], inst: inst.clone(), output });
@@ -1507,6 +1523,28 @@ fn main() {
                             let (pp, ptile, pname, _) = names.pin_naming(*iob, "I").expect("IOB I naming");
                             items.extend(pp.into_iter().map(|p| (c, Item::Pip(p))));
                             items.push((c, Item::Out(inst.clone(), "I".into(), ptile, pname)));
+                        }
+                        hit
+                    }
+                    Cand::IlogicSr { ologic, ilogic, inst } => {
+                        let w = names.site_pin_wire(*ologic, "SR").expect("OLOGIC SR wire");
+                        let c = canon(w);
+                        let hit = reached.contains(&c);
+                        if hit {
+                            // Up to the I/O tile's SR line as for the OLOGIC, then
+                            // ISE's own hop into the ILOGIC2 site.
+                            let (pp, ptile, _, far) = names.pin_naming(*ologic, "SR").expect("OLOGIC SR naming");
+                            let (sr_t, sr_w) = raw
+                                .site_pin_wire(&names.site(*ilogic).1, "SR")
+                                .unwrap_or_else(|| panic!("{inst}: no ISE SR pin"));
+                            let hop = raw
+                                .find_path((&ptile, &far), (&sr_t, &sr_w), 2)
+                                .unwrap_or_else(|| panic!("{inst}: no ISE path from {far} to {sr_w}"));
+                            let into_ologic = pp.last().cloned();
+                            items.extend(pp.into_iter().filter(|p| Some(p) != into_ologic.as_ref()).map(|p| (c, Item::Pip(p))));
+                            items.extend(hop.into_iter().map(|p| (c, Item::Pip(p))));
+                            items.extend(names.trace(w).into_iter().map(|p| (c, Item::Pip(p))));
+                            items.push((c, Item::In(inst.clone(), "SR".into(), sr_t, sr_w)));
                         }
                         hit
                     }

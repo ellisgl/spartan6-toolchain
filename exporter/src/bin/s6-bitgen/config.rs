@@ -535,6 +535,10 @@ impl<'a> Gen<'a> {
                     self.set_bits(bcrd, attr, &[true]);
                 }
                 self.set_enum(bcrd, "MUX_SR", "INT");
+                // Init and set/reset value (SRINIT_OQ).
+                let init = c.params.get("INIT").is_some_and(|v| v.contains('1'));
+                self.set_bits(bcrd, "FFO_INIT", &[init]);
+                self.set_bits(bcrd, "FFO_SRVAL", &[init]);
                 // A tristate ODDR2 on the same pad: the tristate register, as
                 // a DDR register too; its INIT is also its set/reset value.
                 if c.params.contains_key("TFF") {
@@ -558,6 +562,17 @@ impl<'a> Gen<'a> {
                 let k = belname.trim_start_matches("ILOGIC");
                 for attr in ["ENABLE", "DDR", "IOCE_ENABLE", "ROW1_CLK_ENABLE", "ROW2_CLK_ENABLE", "FFI_DELAY_ENABLE"] {
                     self.set_raw(bcrd, attr, 0);
+                }
+                // R / S from logic, on the SR line shared with the OLOGIC.
+                if c.conns.contains_key("SR") {
+                    self.set_enum(bcrd, "MUX_SR", "OLOGIC_SR");
+                    self.set_bits(bcrd, "FFI_SR_ENABLE", &[true]);
+                    let sync = c.params.get("SRTYPE").map(|v| v.trim_matches('"')).unwrap_or("SYNC") == "SYNC";
+                    self.set_bits(bcrd, "FFI_SR_SYNC", &[sync]);
+                    let set = c.params.get("SR_KIND").map(String::as_str) == Some("SET");
+                    // SRINIT_Q: the set / reset value, also the initial one.
+                    self.set_bits(bcrd, "FFI_SRVAL", &[set]);
+                    self.set_bits(bcrd, "FFI_INIT", &[set]);
                 }
                 self.set_raw(bcrd, "DATA_WIDTH_START", 0);
                 self.set_raw(bcrd, "DATA_WIDTH_RELOAD", 1);

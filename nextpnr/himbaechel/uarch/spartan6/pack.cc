@@ -360,8 +360,12 @@ void Spartan6Impl::pack_oddr()
         bool r_used = r && r->constant_value != id_GND, s_used = s && s->constant_value != id_GND;
         if (r_used && s_used)
             log_error("ODDR2 %s: both R and S used is not supported\n", ctx->nameOf(ci));
+        NetInfo *sr_net = r_used ? r : (s_used ? s : nullptr);
         if (r_used || s_used) {
             move(r_used ? id_R : id_S, id_SR);
+            // With R / S used, the register's init and set/reset value
+            // (SRINIT_OQ) follow its kind, as ISE's map folds them.
+            ol->params[id_INIT] = Property(s_used ? 1 : 0, 1);
         } else {
             // ISE ties an unused SR to ground (its DRC wants an SR signal for
             // the reset type).
@@ -385,9 +389,18 @@ void Spartan6Impl::pack_oddr()
                 NetInfo *tc1 = tc->getPort(ctx->id("C1"));
                 if (tc->getPort(ctx->id("C0")) != c0 || !(inverted ? is_inverter_of(tc1, c0) : tc1 == c1))
                     log_error("ODDR2 %s: the tristate ODDR2 %s must use the same clocks\n", ctx->nameOf(ci), ctx->nameOf(tc));
+                // The OLOGIC has one SR line: the tristate ODDR2's R / S must be
+                // the data ODDR2's signal, or both unused (as ISE requires);
+                // the kinds may differ (SRINIT_TQ follows the tristate one's).
                 NetInfo *tr = tc->getPort(id_R), *ts = tc->getPort(id_S);
-                if ((tr && tr->constant_value != id_GND) || (ts && ts->constant_value != id_GND))
-                    log_error("ODDR2 %s: R/S on a tristate ODDR2 is not supported yet\n", ctx->nameOf(tc));
+                bool tr_used = tr && tr->constant_value != id_GND, ts_used = ts && ts->constant_value != id_GND;
+                if (tr_used && ts_used)
+                    log_error("ODDR2 %s: both R and S used is not supported\n", ctx->nameOf(tc));
+                NetInfo *t_sr = tr_used ? tr : (ts_used ? ts : nullptr);
+                if (t_sr != sr_net)
+                    log_error("ODDR2 %s and %s: the data and tristate ODDR2s of a pad must share their set/reset "
+                              "signal (the OLOGIC's SR), or neither use one\n",
+                              ctx->nameOf(ci), ctx->nameOf(tc));
                 auto tmove = [&](IdString from, IdString to) {
                     NetInfo *n = tc->getPort(from);
                     if (!n)
@@ -401,6 +414,8 @@ void Spartan6Impl::pack_oddr()
                 tmove(id_CE, id_TCE);
                 for (auto &p : tc->params)
                     ol->params[ctx->id("T_" + p.first.str(ctx))] = p.second;
+                if (t_sr)
+                    ol->params[ctx->id("T_INIT")] = Property(ts_used ? 1 : 0, 1);
                 ol->params[ctx->id("TFF")] = tc->name.str(ctx);
                 iob->params[ctx->id("OLOGIC_DDR_T")] = Property(1, 1);
                 for (auto &p : std::vector<IdString>{ctx->id("C0"), ctx->id("C1"), id_Q, id_R, id_S})
@@ -507,7 +522,7 @@ void Spartan6Impl::pack_iddr()
         if (r_used && s_used)
             log_error("IDDR2 %s: both R and S used is not supported\n", ctx->nameOf(ci));
         if (r_used || s_used)
-            log_error("IDDR2 %s: R/S are not supported yet\n", ctx->nameOf(ci));
+            move(r_used ? id_R : id_S, id_SR, PORT_IN);
         il->params[ctx->id("SR_KIND")] = std::string(s_used ? "SET" : "RESET");
         il->attrs[id_BEL] = tile + "/ILOGIC" + k;
         ddr->params[id_OLOGIC] = il->name.str(ctx);

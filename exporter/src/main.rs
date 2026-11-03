@@ -446,6 +446,25 @@ fn build_type(db: &IntDb, key: &[(TileSlotId, TileClassId)]) -> TypeBuilder {
                     // PLL's BUFG feedback needs. The uarch allows it only on a
                     // free ILOGIC; the XDL writer adds ISE's placeholder site.
                     if bcls.name == "ILOGIC" {
+                        // ISE's ILOGIC2 SR pin is the SR line the ILOGIC shares
+                        // with its OLOGIC (MUX_SR = OLOGIC_SR); the ILOGIC's own
+                        // SR input (an IMUX_LOGICIN) can't be written as XDL.
+                        let oname = bslot_name.replace("ILOGIC", "OLOGIC");
+                        let osr = tcls.bels.iter().find_map(|(os, oinfo)| match oinfo {
+                            BelInfo::Bel(ob) if db.bel_slots[os].name == oname => {
+                                let BelKind::Class(ocid) = db.bel_slots[os].kind else { return None };
+                                let ocls = &db.bel_classes[ocid];
+                                ob.inputs.iter().find_map(|(pid, inp)| match *inp {
+                                    BelInput::Fixed(pw) if ocls.inputs.key(pid).0 == "SR" => Some(pw.tw),
+                                    BelInput::Invertible(tw, _) if ocls.inputs.key(pid).0 == "SR" => Some(tw),
+                                    _ => None,
+                                })
+                            }
+                            _ => None,
+                        });
+                        if let (Some(tw), Some(p)) = (osr, pins.iter_mut().find(|p| p.name == "SR")) {
+                            p.wire = tb.wire(db, slot, tcls, tw);
+                        }
                         let find = |n: &str| pins.iter().find(|p: &&OutBelPin| p.name == n).map(|p| p.wire);
                         if let (Some(clk), Some(cfb0)) = (find("CLK"), find("CFB0")) {
                             tb.pip(clk, cfb0, "RT_ILOGIC", false, vec![slot_name.clone(), bslot_name.clone()]);
