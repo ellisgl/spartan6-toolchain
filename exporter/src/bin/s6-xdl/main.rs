@@ -443,6 +443,8 @@ fn main() {
     let mut instances: Vec<Instance> = vec![];
     // OLOGIC (ODDR2) cells and their pads: (ologic bel, inst, iob bel, iob inst).
     let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String)> = vec![];
+    // ILOGIC (IDDR2) cells and their pads: (ilogic bel, inst, iob bel, iob inst).
+    let mut ilogic_pads: Vec<(BelCoord, String, BelCoord, String)> = vec![];
     // (tile, site) -> (kind, cfg); slice instances are named after their site.
     let mut slices: BTreeMap<(String, String), (String, SliceInst)> = BTreeMap::new();
     let mut slice_key: HashMap<String, (String, String)> = HashMap::new();
@@ -821,11 +823,46 @@ fn main() {
                 ologic_pads.push((bcrd, inst.clone(), names.bel(x, y, &format!("IOB{k}")), pad));
                 instances.push(Instance { name: inst, kind: "OLOGIC2".into(), placement: Placement::Placed { tile, site }, cfg });
             }
+            "ILOGIC" => {
+                // IDDR2: the ILOGIC2 site as a DDR input register (as ISE writes
+                // it); it reads its pad (net added below).
+                assert!(routed, "{}: ILOGIC needs routed mode", c.name);
+                let bcrd = names.bel(x, y, belname);
+                let (tile, site) = names.site(bcrd);
+                let inst = c.name.clone();
+                let p = |k: &str| c.params.get(k).map(|v| v.trim_matches('"').to_string());
+                let kv = |k: &str, v: String| vec![k.to_string(), "".into(), v];
+                let cfg = vec![
+                    vec!["IFF".into(), inst.clone(), "".into()],
+                    kv("CLK0INV", "CLK0".into()),
+                    kv("CLK1INV", "CLK1_B".into()),
+                    kv("D2OBYP_SEL", "GND".into()),
+                    kv("DDR_ALIGNMENT", p("DDR_ALIGNMENT").unwrap_or("NONE".into())),
+                    kv("IFFMUX", "1".into()),
+                    kv("IFFTYPE", "DDR".into()),
+                    kv("SAME_EDGE_PIPELINED", "FALSE".into()),
+                    kv("SRINIT_Q", "0".into()),
+                    vec!["D2OBYPSEL_GND".into(), format!("{inst}.D2OBYPSEL_GND"), "".into()],
+                    vec!["D2OFFBYP_SRC".into(), format!("{inst}.D2OFFBYP_SRC"), "".into()],
+                ];
+                for (port, output) in [("CE0", false), ("SR", false), ("REV", false), ("Q3", true), ("Q4", true)] {
+                    if c.conns.contains_key(port) {
+                        pins.insert((ci, port.into()), (inst.clone(), port.into()));
+                        cands.insert((ci, port.into()), Cand::Site { bcrd, pins: vec![port.into()], inst: inst.clone(), output });
+                    }
+                }
+                let pad = p("PAD").expect("ILOGIC without PAD");
+                let k = belname.trim_start_matches("ILOGIC");
+                ilogic_pads.push((bcrd, inst.clone(), names.bel(x, y, &format!("IOB{k}")), pad));
+                instances.push(Instance { name: inst, kind: "ILOGIC2".into(), placement: Placement::Placed { tile, site }, cfg });
+            }
             "IOI_DDR" => {
-                // No ISE site: its clock inputs are the OLOGIC2's clock pins.
+                // No ISE site: its clock inputs are the clock pins of the
+                // ILOGIC2 / OLOGIC2 it clocks.
                 let ddr = names.bel(x, y, belname);
                 let k = belname.trim_start_matches("IOI_DDR");
-                let (_, site) = names.site(names.bel(x, y, &format!("OLOGIC{k}")));
+                let logic = c.params.get("LOGIC").map(String::as_str).unwrap_or("OLOGIC");
+                let (_, site) = names.site(names.bel(x, y, &format!("{logic}{k}")));
                 let inst = c.params.get("OLOGIC").expect("IOI_DDR without OLOGIC").clone();
                 for port in ["CLK0", "CLK1"] {
                     if c.conns.contains_key(port) {
@@ -1607,6 +1644,26 @@ fn main() {
                     }
                 }
             }
+        }
+        // Each IDDR2's ILOGIC reads its pad: IOB I -> ILOGIC D.
+        for (ilogic, inst, iob, pad) in &ilogic_pads {
+            let (iob_pips, iob_tile, _, iob_far) = names.pin_naming(*iob, "I").expect("IOB I naming");
+            let (_, ioi_tile, d_name, _) = names.pin_naming(*ilogic, "D").expect("ILOGIC D naming");
+            let hop = raw
+                .find_path((&iob_tile, &iob_far), (&ioi_tile, &d_name), 4)
+                .unwrap_or_else(|| panic!("{inst}: no ISE path from {iob_far} to {d_name}"));
+            xnets.push(Net {
+                name: format!("{pad}_D"),
+                typ: NetType::Plain,
+                outpins: vec![NetPin { inst_name: pad.clone(), pin: "I".into() }],
+                inpins: vec![NetPin { inst_name: inst.clone(), pin: "D".into() }],
+                pips: iob_pips
+                    .into_iter()
+                    .chain(hop)
+                    .map(|(tile, wire_from, wire_to)| NetPip { tile, wire_from, wire_to, dir: PipDirection::UniBuf })
+                    .collect(),
+                cfg: vec![],
+            });
         }
         // Each ODDR2's OLOGIC drives its pad: OQ -> IOB O.
         for (ologic, inst, iob, pad) in &ologic_pads {

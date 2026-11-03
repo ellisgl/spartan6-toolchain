@@ -68,6 +68,7 @@ talks to the Mojo over its USB serial port):
 | `phase` | `tools/phase-test.py` | DCM fixed phase shift +-90 and +-135 degrees (sampled on the board clock) |
 | `dll2x` | `tools/dll-test.py --design dll2x` | as `dll`, with CLK2X fed back (CLK_FEEDBACK = 2X) |
 | `oddr` | `tools/oddr-test.py` | ODDR2: the pin read back on both clock edges shows D0 then D1 (`oddr_x4`: ISE check only) |
+| `iddr` | `tools/iddr-test.py` | IDDR2: a pin driven from the fabric and read back on both clock edges |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -484,6 +485,11 @@ Packer limits for now:
   them) and the OLOGIC drives the pad on its own net. ISE also masks frame
   28 of the column region (GLUTMASK_HCLK.FRAME28; in the clock column, which
   has no GLUTMASK bel in prjcombine, frame 18 of its HCLK bits).
+- **IDDR2 (DDR input):** the same on the pad's ILOGIC (Q0 on the site's Q4,
+  Q1 on Q3), clocked through the IOI_DDR the same way; the pad's input goes
+  to the ILOGIC's D on its own XDL net. R/S aren't supported yet (ISE takes
+  the ILOGIC's SR from the I/O tile's SR line, which prjcombine models
+  differently).
 - **BUFG inputs:** a pad only feeds BUFGs over the dedicated clock path when
   that path reaches one (clock-capable pins); otherwise through general
   routing from the data input, on any free BUFGMUX. BUFGs use I0 only.

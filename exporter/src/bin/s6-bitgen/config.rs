@@ -523,6 +523,22 @@ impl<'a> Gen<'a> {
                 self.set_bits(iodelay, "IDELAY_FIXED", &[true]);
                 self.set_mux_bits_raw(tcrd, &format!("IMUX_OLOGIC_IOCE{k}"), &[2]);
             }
+            "ILOGIC" => {
+                // IDDR2: the ILOGIC as a DDR input register, as ISE sets it
+                // (raw bits, from ISE's bitstream).
+                let bcrd = cell.bel(self.slot(belname));
+                let tcrd = self.edev.bel_tile(bcrd);
+                let k = belname.trim_start_matches("ILOGIC");
+                for attr in ["ENABLE", "DDR", "IOCE_ENABLE", "ROW1_CLK_ENABLE", "ROW2_CLK_ENABLE", "FFI_DELAY_ENABLE"] {
+                    self.set_raw(bcrd, attr, 0);
+                }
+                self.set_raw(bcrd, "DATA_WIDTH_START", 0);
+                self.set_raw(bcrd, "DATA_WIDTH_RELOAD", 1);
+                self.set_raw(bcrd, "DATA_WIDTH_RELOAD", 2);
+                let iodelay = cell.bel(self.slot(&format!("IODELAY{k}")));
+                self.set_bits(iodelay, "IDELAY_FIXED", &[true]);
+                self.set_mux_bits_raw(tcrd, &format!("IMUX_ILOGIC_IOCE{k}"), &[2]);
+            }
             "IOI_DDR" => {
                 // DDR clocking from one clock: both halves on, no alignment,
                 // and the CLK0 line inverted (it feeds the site's CLK1, as C1 =
@@ -959,13 +975,13 @@ impl<'a> Gen<'a> {
                 self.set_bits(b, f, &[true]);
             }
         }
-        // An OLOGIC used as a DDR register (ODDR2): ISE also masks frame 28
+        // An OLOGIC/ILOGIC used as a DDR register (ODDR2/IDDR2): ISE also masks frame 28
         // of its column region (GLUTMASK_HCLK.FRAME28). The clock column (CMT)
         // has the bit but no GLUTMASK bel in prjcombine: set it in the
         // region's HCLK bits directly (frame 18, bit 1 there, as ISE writes
         // it; the column's frames are laid out differently).
         let mut ddr_masked: HashSet<(usize, RowId)> = HashSet::new();
-        for c in cells.iter().filter(|c| c.typ == "OLOGIC") {
+        for c in cells.iter().filter(|c| c.typ == "OLOGIC" || c.typ == "ILOGIC") {
             let (x, y, _) = c.bel;
             ddr_masked.insert((x, self.edev.chip.row_hclk(RowId::from_idx(y))));
         }
