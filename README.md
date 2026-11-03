@@ -15,6 +15,34 @@ Every feature is cross-checked against ISE 14.7 (the same placement and
 routing written as XDL, converted and bitgen'd by ISE, must give a
 byte-identical bitstream) and tested on the board where it can be.
 
+## Quick start
+
+On Ubuntu 24.04 (CI does exactly this):
+
+```
+sudo apt install build-essential cmake curl libboost-filesystem-dev \
+    libboost-program-options-dev libboost-iostreams-dev libboost-system-dev \
+    libboost-thread-dev libeigen3-dev
+# Rust 1.85+ (https://rustup.rs) and Yosys (e.g. the OSS CAD Suite)
+git clone https://github.com/ellisgl/spartan6-toolchain && cd spartan6-toolchain
+make                          # nextpnr, prjcombine's database, the chip database (~15 min)
+make bit TEST=blinky          # -> build/blinky/design.bin
+make load TEST=blinky         # onto a Mojo V3 over USB (FPGA RAM)
+```
+
+Your own design: `tests/<name>/<name>.v` (top module `<name>`) with a
+`pins.ucf` (LOC, IOSTANDARD, DRIVE, SLEW, PULLUP/PULLDOWN; copy one from
+`tests/`), then `make bit TEST=<name>`. Another Spartan-6 part: add
+`DEVICE=xc6slx16 PACKAGE=ftg256` (see Building and using).
+
+Prebuilt binaries: each [release](https://github.com/ellisgl/spartan6-toolchain/releases)
+has nextpnr, the chip databases and the Rust tools for Linux x86-64; the
+bitstream writer also needs prjcombine's database:
+
+```
+curl -fLO https://codeberg.org/prjunnamed/prjcombine/raw/commit/2b3317db3799b82b3ef5606438145ba76b9b4485/databases/spartan6.zstd
+```
+
 ## Layout
 
 | Directory | What |
@@ -616,8 +644,8 @@ Packer limits for now:
 - **Timing coverage:** I/O, DCM/PLL and the clock spines use a typical
   routing delay; the delay model was measured for -2 only (the other speed
   grades get the same numbers).
-- **Bitstream references.** The JSON keeps a `src_ref` for each pip for the
-  future bitstream writer. The `.bba` doesn't carry it.
+- **PLL CLKINSEL from logic** (see the uarch section) and the GTP, PCIe and
+  memory controller blocks.
 
 ## Licence
 

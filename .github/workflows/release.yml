@@ -1,0 +1,52 @@
+# On a version tag: build everything (as CI does) and attach Linux x86-64
+# binaries to a GitHub release: nextpnr-himbaechel, the chip databases of
+# every supported device, and the Rust tools. prjcombine's database is not
+# bundled (download it from Codeberg; see the README).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ccache libeigen3-dev \
+            libboost-filesystem-dev libboost-program-options-dev libboost-iostreams-dev \
+            libboost-system-dev libboost-thread-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build nextpnr and the chip databases
+        run: |
+          make -j$(nproc)
+          for d in xc6slx4 xc6slx16 xc6slx25 xc6slx25t xc6slx45; do
+            make -j$(nproc) DEVICE=$d build/chipdb-$d.bin
+          done
+
+      - name: Package
+        run: |
+          name=spartan6-toolchain-${GITHUB_REF_NAME}-linux-x86_64
+          mkdir -p $name/bin $name/share/himbaechel/spartan6
+          cp build/nextpnr-build/nextpnr-himbaechel $name/bin/
+          for t in s6-export s6-chipdb s6-check s6-bitgen s6-load s6-xdl s6-timing; do
+            cp build/target/release/$t $name/bin/
+          done
+          cp build/chipdb-*.bin $name/share/himbaechel/spartan6/
+          cp build/xc6s*.json $name/share/himbaechel/spartan6/
+          cp README.md LICENSE $name/
+          tar czf $name.tar.gz $name
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: spartan6-toolchain-*.tar.gz
