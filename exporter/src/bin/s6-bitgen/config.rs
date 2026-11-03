@@ -23,9 +23,8 @@ use s6_export::nextpnr::{NCell, NNet};
 use s6_export::parse_wire_name;
 
 /// bitgen's register values for our options (Binary:Yes, UnusedPin:Pullnone,
-/// everything else default), from ISE's output.
+/// everything else default), from ISE's output. The IDCODE is the device's.
 const DEFAULT_REGS: &[(Reg, u32)] = &[
-    (Reg::Idcode, 0x0400_1093),
     (Reg::Ctl0, 0x0081),
     (Reg::Cor1, 0x3d00),
     (Reg::Cor2, 0x09ee),
@@ -77,8 +76,9 @@ pub struct Gen<'a> {
 }
 
 impl<'a> Gen<'a> {
-    pub fn new(edev: &'a ExpandedDevice<'a>, int: &'a IntDb) -> Self {
+    pub fn new(edev: &'a ExpandedDevice<'a>, int: &'a IntDb, idcode: u32) -> Self {
         let mut bs = edev.empty_bitstream();
+        bs.regs.insert(Reg::Idcode, idcode);
         for &(r, v) in DEFAULT_REGS {
             bs.regs.insert(r, v);
         }

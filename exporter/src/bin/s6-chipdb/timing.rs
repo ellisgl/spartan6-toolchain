@@ -272,6 +272,10 @@ fn add_cells(ch: &mut Chip, grade: &str, cd: &Cells) {
         Some(c) => format!("{}0", &c[1]),
         None => name.to_string(),
     };
+    let is_cascade = |pin: &str| {
+        let bus = pin.split('[').next().unwrap_or(pin);
+        ["PCIN", "PCOUT", "BCIN", "BCOUT", "CARRYIN", "CARRYOUT", "CARRYOUTF"].contains(&bus)
+    };
     let cfgs: BTreeSet<&str> = cd
         .0
         .cell_delays
@@ -287,14 +291,21 @@ fn add_cells(ch: &mut Chip, grade: &str, cd: &Cells) {
         };
         let dsp = ch.add_cell_variant(grade, &format!("DSP_{}{op}", if regs.is_empty() { "NONE" } else { regs }));
         let key = format!("X_DSP48A1:{cfg}");
-        for a in cd.0.cell_delays.iter().filter(|a| a.celltype == key) {
+        // Cascades were only measured with OPMODE from logic
+        // (tests/dsp_casc_char*): a constant-OPMODE variant takes its
+        // cascade-pin arcs from there.
+        let logic_key = format!("X_DSP48A1:{regs}");
+        let theirs = |celltype: &str, pins: [&str; 2]| {
+            celltype == key || (!op.is_empty() && celltype == logic_key && pins.iter().any(|p| is_cascade(p)))
+        };
+        for a in cd.0.cell_delays.iter().filter(|a| theirs(&a.celltype, [&a.from, &a.to])) {
             if a.from == "CLK" {
                 clk_out(ch, dsp, "CLK", &dsp_pin(&a.to), Some(a.delay_ps), Rising);
             } else {
                 comb(ch, dsp, &dsp_pin(&a.from), &dsp_pin(&a.to), Some(a.delay_ps));
             }
         }
-        for c in cd.0.cell_checks.iter().filter(|c| c.celltype == key && c.clock == "CLK") {
+        for c in cd.0.cell_checks.iter().filter(|c| theirs(&c.celltype, [&c.data, ""]) && c.clock == "CLK") {
             setup_hold(ch, dsp, "CLK", &dsp_pin(&c.data), Some((c.setup_ps, c.hold_ps)), Rising);
         }
     }

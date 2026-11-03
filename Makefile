@@ -126,7 +126,14 @@ $(S6XDL): $(EXPORTER)
 # XDL_MODE=routed (default) checks our routing; XDL_MODE=pins lets ISE route.
 
 TEST ?= blinky
-T    := $(BUILD)/$(TEST)
+# Per-design outputs: build/<test> for the xc6slx9 TQG144 (the Mojo V3),
+# build/<device>-<package>/<test> for any other device.
+ifeq ($(DEVICE)-$(PACKAGE),xc6slx9-tqg144)
+DBUILD := $(BUILD)
+else
+DBUILD := $(BUILD)/$(DEVICE)-$(PACKAGE)
+endif
+T    := $(DBUILD)/$(TEST)
 S6BITGEN := $(BUILD)/target/release/s6-bitgen
 XDL_MODE ?= routed
 
@@ -139,31 +146,37 @@ $(shell mkdir -p $(BUILD); echo '$(SYNTH_FLAGS)' | cmp -s - $(SYNTH_STAMP) 2>/de
 
 # tests/common/*.v (shared UART helpers) is read for every design; yosys drops
 # the modules a design doesn't use.
-$(BUILD)/%/synth.json: $$(wildcard tests/$$*/*.v) $(wildcard tests/common/*.v) $(SYNTH_STAMP)
+$(DBUILD)/%/synth.json: $$(wildcard tests/$$*/*.v) $(wildcard tests/common/*.v) $(SYNTH_STAMP)
 	@mkdir -p $(dir $@)
 	$(YOSYS) -q -l $(dir $@)yosys.log -p "synth_xilinx -family xc6s -top $* $(SYNTH_FLAGS) -json $@" $(filter %.v,$^)
 
+# Pins: on the Mojo, tests/<name>/pins.ucf or tests/mojo_v3.ucf; on other
+# packages tests/<name>/pins-<package>.ucf, or none (nextpnr picks the pads).
+ifeq ($(DBUILD),$(BUILD))
 ucf_for = $(if $(wildcard tests/$(1)/pins.ucf),tests/$(1)/pins.ucf,tests/mojo_v3.ucf)
+else
+ucf_for = $(wildcard tests/$(1)/pins-$(PACKAGE).ucf)
+endif
 
-$(BUILD)/%/routed.json: $(BUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $(NPNR_BIN)
+$(DBUILD)/%/routed.json: $(DBUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $(NPNR_BIN)
 	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
-		-o ucf=$(call ucf_for,$*) --write $@ --log $(dir $@)nextpnr.log
+		$(if $(call ucf_for,$*),-o ucf=$(call ucf_for,$*)) --write $@ --log $(dir $@)nextpnr.log
 
 $(S6BITGEN): $(EXPORTER)
 
-$(BUILD)/%/design.bin: $(BUILD)/%/routed.json $(S6BITGEN) $(DB) $(BUILD)/$(DEVICE).json
-	$(S6BITGEN) --db $(DB) gen --routed $< --chipdb-json $(BUILD)/$(DEVICE).json --out $@
+$(DBUILD)/%/design.bin: $(DBUILD)/%/routed.json $(S6BITGEN) $(DB) $(BUILD)/$(DEVICE).json
+	$(S6BITGEN) --db $(DB) --device $(DEVICE) gen --routed $< --chipdb-json $(BUILD)/$(DEVICE).json --out $@
 
 # --- ISE cross-check ---------------------------------------------------------
 
 XDL_ARGS_routed := --rawdump $(RAWDUMP) --chipdb-json $(BUILD)/$(DEVICE).json
 XDL_ARGS_pins   := --pins-only
 
-$(BUILD)/%/design.xdl: $(BUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB) $(RAWDUMP) $(BUILD)/$(DEVICE).json
-	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --package $(PACKAGE) --out $@
+$(DBUILD)/%/design.xdl: $(DBUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB) $(RAWDUMP) $(BUILD)/$(DEVICE).json
+	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --device $(DEVICE) --package $(PACKAGE) --out $@
 
 # ISE: XDL -> NCD, (route with par in pins mode), DRC, bitstream.
-$(BUILD)/%/ise.bin: $(BUILD)/%/design.xdl
+$(DBUILD)/%/ise.bin: $(DBUILD)/%/design.xdl
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) xdl -xdl2ncd -force design.xdl design.ncd > xdl2ncd.log
 	if grep -q '^ERROR' $(dir $@)xdl2ncd.log; then grep '^ERROR' $(dir $@)xdl2ncd.log; exit 1; fi
 ifeq ($(XDL_MODE),pins)
@@ -183,8 +196,9 @@ endif
 #                      # Uses the current routes, so run it after `make`.
 
 TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate speed
-# DSP48A1 characterization (tools/gen_dsp_char.py): cell timing only.
-TIMING_CELL_DESIGNS ?= $(notdir $(wildcard tests/dsp_char*))
+# DSP48A1 characterization, with and without cascades (tools/gen_dsp_char.py):
+# cell timing only.
+TIMING_CELL_DESIGNS ?= $(notdir $(wildcard tests/dsp_char* tests/dsp_casc_char*))
 S6TIMING := $(BUILD)/target/release/s6-timing
 $(S6TIMING): $(EXPORTER)
 
@@ -210,7 +224,7 @@ $(S6LOAD): $(EXPORTER)
 load: $(T)/design.bin $(S6LOAD)
 	$(S6LOAD) $<
 ise-check: $(T)/design.bin $(T)/ise.bin
-	$(S6BITGEN) --db $(DB) diff $(T)/ise.bin $(T)/design.bin | tail -1
+	$(S6BITGEN) --db $(DB) --device $(DEVICE) diff $(T)/ise.bin $(T)/design.bin | tail -1
 	cmp $(T)/ise.bin $(T)/design.bin && echo "$(TEST): s6-bitgen output is identical to ISE bitgen"
 
 # Old name for the first milestone.

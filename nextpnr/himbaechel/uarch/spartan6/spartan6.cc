@@ -46,16 +46,14 @@ void Spartan6Impl::init_database(Arch *arch)
     init_uarch_constids(arch);
     // Accept xc6slx9-tqg144, xc6slx9-2tqg144 and xc6slx9-2tqg144c.
     std::smatch m;
-    static const std::regex devre("(xc6slx\\d+)-(\\d?)([a-z]+\\d+)[cil]?");
+    static const std::regex devre("(xc6slx\\d+t?)-(\\d?)([a-z]+\\d+)[cil]?");
     if (!std::regex_match(args.device, m, devre))
         log_error("Invalid Spartan-6 device '%s' (expected e.g. xc6slx9-2tqg144)\n", args.device.c_str());
     std::string die = m[1].str();
-    if (die != "xc6slx9")
-        log_error("Only xc6slx9 is supported so far (got %s)\n", die.c_str());
     arch->load_chipdb(stringf("spartan6/chipdb-%s.bin", die.c_str()));
     // Speed grade from the device name (default -2, as on the Mojo V3). The
-    // delay model was measured for -2 only; the database gives the other
-    // grades the same values.
+    // delay model was measured on the xc6slx9-2 only; the database gives the
+    // other grades and devices the same values (same fabric).
     std::string speed = m[2].str().empty() ? "2" : m[2].str();
     arch->set_speed_grade("-" + speed);
     std::string pkg = m[3].str();
@@ -172,7 +170,8 @@ IdString Spartan6Impl::dsp_timing_pin(IdString port) const
     std::string bus = s.substr(0, n);
     if (bus == "M")
         bus = "P";
-    if (bus != "A" && bus != "B" && bus != "C" && bus != "D" && bus != "OPMODE" && bus != "P")
+    static const pool<std::string> buses = {"A", "B", "C", "D", "OPMODE", "P", "PCIN", "PCOUT", "BCIN", "BCOUT"};
+    if (!buses.count(bus))
         return port;
     return ctx->id(bus + "0");
 }
@@ -241,7 +240,7 @@ void Spartan6Impl::prePlace()
     // DSP timing depends on its pipeline registers: pick the variant for
     // this configuration, DSP_<registered groups in the order A B C D M P
     // O(PMODE)> or DSP_NONE, with _<hex> for a constant OPMODE that was
-    // measured (see gen/s6_timing.py).
+    // measured (see s6-chipdb).
     for (auto &cell : ctx->cells) {
         CellInfo *ci = cell.second.get();
         if (ci->type != id_DSP || !ctx->speed_grade)

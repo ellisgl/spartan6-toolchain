@@ -118,7 +118,13 @@ fn main() {
         Command::Gen { routed, chipdb_json, out, compare } => {
             let chipdb = s6_export::chipdb::ChipdbIndex::load(&chipdb_json);
             let (cells, nets) = s6_export::nextpnr::load_routed(&routed);
-            let mut g = config::Gen::new(&edev, &db.int);
+            let idcode = match dev.data.get(prjcombine_spartan6::defs::devdata::IDCODE) {
+                Some(prjcombine_interconnect::db::TableValue::BitVec(bv)) => {
+                    (0..bv.len()).rev().fold(0u32, |a, i| a << 1 | bv[i] as u32)
+                }
+                _ => panic!("no IDCODE for {} in the database", dev.name),
+            };
+            let mut g = config::Gen::new(&edev, &db.int, idcode);
             g.defaults();
             let mut errors = vec![];
             for c in &cells {

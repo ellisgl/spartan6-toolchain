@@ -57,6 +57,28 @@ Eigen (for nextpnr), and Yosys. The hardware test scripts in `tools/` need
 Python 3.10+ with pyserial. Only `make ise-check` and `make timing-data` need
 ISE (see below).
 
+**Other devices.** `DEVICE` and `PACKAGE` select another Spartan-6 LX/LXT
+part; outputs go to `build/<device>-<package>/<test>`:
+
+```
+make DEVICE=xc6slx16 PACKAGE=ftg256                           # its chip database
+make bit DEVICE=xc6slx16 PACKAGE=ftg256 TEST=blinky
+make ise-check DEVICE=xc6slx16 PACKAGE=ftg256 TEST=blinky     # needs ISE
+```
+
+Pins come from `tests/<name>/pins-<package>.ucf` if there is one; otherwise
+nextpnr picks them (a clock input goes on a clock-capable pin). The xc6slx4,
+xc6slx16, xc6slx25, xc6slx25t and xc6slx45 export and pass `make check`;
+blinky on the xc6slx16 (FTG256) is byte-identical to ISE. Nothing but the
+xc6slx9 has been on hardware, and timing everywhere is the xc6slx9-2 model.
+GTP transceivers, PCIe and the memory controller (MCB) aren't supported.
+
+**DSP inference.** yosys packs multipliers, multiply-accumulate, P cascades
+and the pre-adder into DSP48A1s. Stock yosys only finds the pre-adder when
+the sum is the second operand (`a * (d + b)`, not `(d + b) * a`); the
+`xc6s-preadd-swap` branch of [ellisgl/yosys](https://github.com/ellisgl/yosys/tree/xc6s-preadd-swap)
+handles both.
+
 ## Tests
 
 Hardware tests (load the design with `make load TEST=<name>` first; each
@@ -83,6 +105,7 @@ talks to the Mojo over its USB serial port):
 | `srlq31` | `tools/srlq31-test.py` | SRLC32E using both a Q tap and Q31 (cascade), 8 lanes |
 | `ram32` | `tools/ram32-test.py` | RAM32X1S and RAM32X1D (8 lanes each) with initial contents |
 | `dspcasc` | `tools/dspcasc-test.py` | DSP48A1 cascades: PCOUT -> PCIN, BCOUT -> BCIN, CARRYOUT -> CARRYIN over three DSPs |
+| `preadd` | `tools/preadd-test.py` | DSP48A1 pre-adder and pre-subtracter (inferred by yosys) |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -176,7 +199,13 @@ A..P for each of the constant modes 01, 09 (with PREG; ISE requires it), 0d,
 constant-mode one when it exists. ISE times buses as a whole (`A[17:0] ->
 P[47:0]`), so arcs are stored once on bit 0 and the uarch maps every bus pin
 onto it. M isn't measured (ISE won't use M and P together) and is timed as
-P. The characterization designs give cell timing only (`--cells-only`):
+P. Cascades are measured by `tests/dsp_casc_char*`: one chain of all 16
+DSPs per design (PCOUT -> PCIN, BCOUT -> B, CARRYOUT -> CARRYIN), the 128
+OPMODE-from-logic configurations each twice, rotated by half a chain, so every
+configuration is seen driving and receiving a cascade. Constant-OPMODE
+variants take their cascade-pin arcs from the OPMODE-from-logic variant with
+the same registers. ISE's 59 ps cascade wire delay isn't modelled.
+The characterization designs give cell timing only (`--cells-only`):
 their long shift registers would skew the routing fit.
 
 Fit: 46,080 connections from 10 designs, 164 ps rms error (mean connection
@@ -393,7 +422,8 @@ primary source is kept, as an always-on pip) and factory-test wires
   the next one's inputs as nodes, a chain is a cluster with each link 4 rows
   above the last, and the XDL writer gives each cascade net ISE's one pip in
   the lower DSP's tile. Cascade outputs reach only the next DSP (use
-  CARRYOUTF / P for the fabric), and cascade paths aren't timed yet.
+  CARRYOUTF / P for the fabric). Cascade paths are timed (see the delay
+  model).
 - **DCM DLL (CLK_FEEDBACK = 1X or 2X):** CLK0/90/180/270, CLK2X/CLK2X180 and
   CLKDV; the DLL bits as ISE sets them, and CLKDV_DIVIDE encoded as ISE
   does for all 22 legal values (checked against ISE for each). Fixed phase
@@ -484,7 +514,9 @@ Packer limits for now:
   (CLKOUT_PHASE_SHIFT = VARIABLE_*, PSDONE),
   PLL CLKINSEL driven dynamically.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
-  six measured fall back to the OPMODE-from-logic numbers (pessimistic).
+  six measured fall back to the OPMODE-from-logic numbers (pessimistic);
+  that includes 05 (multiply plus PCIN, which yosys uses for cascades) and
+  51 (pre-subtract). Other devices use the xc6slx9-2 delay model.
 - **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as
   a DDR register, clocked through the I/O tile's IOI_DDR (prjcombine's DDR
   clocking), which takes the clock on both inputs; C1 must be ~C0 (the LUT

@@ -155,18 +155,16 @@ void Spartan6Impl::pack_clocking()
             continue;
         // Only a clock-capable pin has a dedicated path to the BUFGs; other
         // pins reach them through general routing from the data input.
-        if (ci->attrs.count(id_BEL)) {
-            BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());
+        auto reaches_bufg = [&](BelId pad_bel) {
             WireId src = ctx->getBelPinWire(pad_bel, id_GCLK_I);
             pool<WireId> seen{src};
             std::vector<WireId> frontier{src};
-            bool reaches = false;
-            for (int d = 0; d < 10 && !frontier.empty() && !reaches; d++) {
+            for (int d = 0; d < 10 && !frontier.empty(); d++) {
                 std::vector<WireId> next;
                 for (WireId w : frontier) {
                     for (auto bp : ctx->getWireBelPins(w))
                         if (ctx->getBelType(bp.bel) == id_BUFGMUX)
-                            reaches = true;
+                            return true;
                     for (PipId pip : ctx->getPipsDownhill(w)) {
                         WireId dst = ctx->getPipDstWire(pip);
                         if (seen.insert(dst).second)
@@ -175,9 +173,25 @@ void Spartan6Impl::pack_clocking()
                 }
                 frontier = std::move(next);
             }
-            if (!reaches)
-                continue;
+            return false;
+        };
+        if (!ci->attrs.count(id_BEL)) {
+            // No LOC: the clock tree is placed now, from the pad, so pick the
+            // first free clock-capable pad.
+            pool<BelId> taken;
+            for (auto &other : ctx->cells)
+                if (other.second->type == id_IOB && other.second->attrs.count(id_BEL))
+                    taken.insert(ctx->getBelByNameStr(other.second->attrs.at(id_BEL).as_string()));
+            for (BelId bel : ctx->getBels()) {
+                if (!bonded_iobs.count(bel) || taken.count(bel) || !reaches_bufg(bel))
+                    continue;
+                ci->attrs[id_BEL] = ctx->getBelName(bel).str(ctx);
+                log_info("Clock input %s placed on clock-capable pad %s\n", ctx->nameOf(ci), ctx->nameOfBel(bel));
+                break;
+            }
         }
+        if (ci->attrs.count(id_BEL) && !reaches_bufg(ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string())))
+            continue;
         ci->renamePort(id_I, id_GCLK_I);
         if (ci->attrs.count(id_BEL)) {
             BelId pad_bel = ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string());

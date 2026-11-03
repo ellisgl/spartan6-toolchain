@@ -17,7 +17,7 @@ add_nextpnr_himbaechel_microarchitecture(${uarch}
 )
 
 # The chip database is built outside nextpnr, from prjcombine's Spartan-6
-# database, by the toolchain this nextpnr lives in (exporter/ and gen/ next to
-# nextpnr/: s6-export -> s6_gen.py -> bbasm).
+# database, by the toolchain this nextpnr lives in (exporter/ next to nextpnr/:
+# s6-export -> s6-chipdb -> bbasm).
 # Install it as <share>/himbaechel/spartan6/chipdb-xc6slx9.bin, or pass
 # --chipdb. See README.md.
