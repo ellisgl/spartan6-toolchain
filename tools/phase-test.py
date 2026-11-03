@@ -56,7 +56,7 @@ def main():
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "phase.bin")
             bitstream(shift, path)
-            subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools/mojo-load.py"), "--port", args.port, path],
+            subprocess.run([os.path.join(ROOT, "build/target/release/s6-load"), "--port", args.port, path],
                            check=True, stdout=subprocess.DEVNULL)
         with serial.Serial(args.port, 115200, timeout=2) as s:
             time.sleep(0.5)

@@ -26,4 +26,7 @@ prjcombine-re-sdf = { path = "vendor/prjcombine-re-sdf" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4", features = ["derive"] }
+regex = "1"
+# For s6-load (termios and DTR on the Mojo's serial port).
+libc = "0.2"
 

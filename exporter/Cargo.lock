@@ -1048,6 +1048,7 @@ name = "s6-export"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "libc",
  "prjcombine-entity",
  "prjcombine-interconnect",
  "prjcombine-re-sdf",
@@ -1060,6 +1061,7 @@ dependencies = [
  "prjcombine-re-xilinx-xdl",
  "prjcombine-spartan6",
  "prjcombine-types",
+ "regex",
  "serde",
  "serde_json",
 ]

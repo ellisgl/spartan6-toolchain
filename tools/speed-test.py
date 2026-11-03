@@ -67,7 +67,7 @@ def bitstream(base, mult, div, path):
 
 
 def load(path, port):
-    subprocess.run([sys.executable, "-I", os.path.join(ROOT, "tools/mojo-load.py"), "--port", port, path],
+    subprocess.run([os.path.join(ROOT, "build/target/release/s6-load"), "--port", port, path],
                    check=True, stdout=subprocess.DEVNULL)
 
 

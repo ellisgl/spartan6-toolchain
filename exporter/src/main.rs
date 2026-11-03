@@ -1,9 +1,9 @@
 //! Export one Spartan-6 device from the prjcombine database as JSON.
 //!
-//! The JSON is consumed by `gen/s6_gen.py`, which builds the nextpnr himbaechel
-//! chip database (.bba). Splitting the work this way keeps the prjcombine
-//! dependency in Rust, and the nextpnr `.bba` layout in nextpnr's own Python
-//! generator library, so neither side has to reimplement the other.
+//! The JSON is consumed by `s6-chipdb`, which builds the nextpnr himbaechel
+//! chip database (.bba). The JSON is the boundary between prjcombine's view
+//! of the device and nextpnr's: `s6-check` sanity-checks it, and `s6-xdl` and
+//! `s6-bitgen` read it to map nextpnr's names back to prjcombine's.
 //!
 //! Mapping from prjcombine to himbaechel:
 //! - one himbaechel tile per prjcombine cell (col, row);

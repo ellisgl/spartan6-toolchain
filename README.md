@@ -6,7 +6,7 @@ the Mojo V3, TQG144): Verilog to a bitstream with no vendor tools.
 ```
 Verilog ──yosys (synth_xilinx -family xc6s)──▶ netlist
         ──nextpnr-himbaechel (spartan6 uarch)──▶ placed & routed design
-        ──s6-bitgen──▶ bitstream ──▶ FPGA (tools/mojo-load.py, or openFPGALoader)
+        ──s6-bitgen──▶ bitstream ──▶ FPGA (s6-load, or openFPGALoader)
 ```
 
 Every feature is cross-checked against ISE 14.7 (the same placement and
@@ -18,11 +18,10 @@ byte-identical bitstream) and tested on the board where it can be.
 | Directory | What |
 |---|---|
 | `nextpnr/` | nextpnr (git subtree of YosysHQ/nextpnr) with the Spartan-6 himbaechel uarch in `nextpnr/himbaechel/uarch/spartan6` (packing, placement rules, timing variants) |
-| `exporter/` | Rust tools over prjcombine's Spartan-6 database: `s6-export` (chip database JSON), `s6-bitgen` (bitstream writer), `s6-xdl` (XDL writer for the ISE cross-check), `s6-timing` (delay model fit) |
-| `gen/` | builds nextpnr's chip database (`.bba`) from the exported JSON, with the delay model |
+| `exporter/` | Rust tools over prjcombine's Spartan-6 database: `s6-export` (chip database JSON), `s6-chipdb` (nextpnr chip database `.bba` from the JSON, with the delay model), `s6-check` (sanity checks on the JSON), `s6-bitgen` (bitstream writer), `s6-xdl` (XDL writer for the ISE cross-check), `s6-timing` (delay model fit), `s6-load` (Mojo V3 loader) |
 | `data/` | the fitted delay model (`timing-xc6slx9-2.json`) |
 | `tests/` | test designs (one directory each, with `pins.ucf`), `tests/common` (UART helpers) |
-| `tools/` | board loader, hardware test scripts, timing comparison, generators |
+| `tools/` | ISE wrappers, hardware test scripts (Python), timing comparison, test design generators |
 | `docs/` | the original plan and upstream issue drafts |
 
 prjcombine (the Spartan-6 bit and routing database) is used as a pinned
@@ -51,9 +50,10 @@ build/target/release/s6-bitgen --db build/spartan6-*.zstd gen --routed routed.js
     --chipdb-json build/xc6slx9.json --out design.bin
 ```
 
-Requires Rust 1.85+ (edition 2024), Python 3.10+, curl, CMake, a C++17
-compiler, Boost and Eigen (for nextpnr), and Yosys. Only `make ise-check` and
-`make timing-data` need ISE (see below).
+Requires Rust 1.85+ (edition 2024), curl, CMake, a C++17 compiler, Boost and
+Eigen (for nextpnr), and Yosys. The hardware test scripts in `tools/` need
+Python 3.10+ with pyserial. Only `make ise-check` and `make timing-data` need
+ISE (see below).
 
 ## Tests
 
@@ -125,11 +125,11 @@ Reference build and loading onto the Mojo V3, verified on hardware with
 
 ```
 tools/ise-build.sh cylon tests/mojo_v3.ucf build/cylon-ise tests/cylon/cylon.v
-tools/mojo-load.py build/cylon-ise/cylon.bin            # RAM (lost on power cycle)
-tools/mojo-load.py --flash build/cylon-ise/cylon.bin    # flash, verified
+build/target/release/s6-load build/cylon-ise/cylon.bin            # RAM (lost on power cycle)
+build/target/release/s6-load --flash build/cylon-ise/cylon.bin    # flash, verified
 ```
 
-`mojo-load.py` speaks the official loader's serial protocol to the Mojo's
+`s6-load` (also `make load TEST=...`) speaks the official loader's serial protocol to the Mojo's
 AVR (`/dev/ttyACM0`; needs membership of `dialout`).
 
 openFPGALoader can do the same with the `mojov3` board from the
@@ -142,7 +142,7 @@ openFPGALoader -b mojov3 build/cylon/design.bin       # RAM
 openFPGALoader -b mojov3 -f build/cylon/design.bin    # flash, verified
 ```
 
-## Delay model (`exporter/src/bin/s6-timing.rs`, `gen/s6_timing.py`)
+## Delay model (`exporter/src/bin/s6-timing.rs`, `exporter/src/bin/s6-chipdb/timing.rs`)
 
 prjcombine has no Spartan-6 timing, so the delays come from ISE: for each
 test design placed and routed by nextpnr, ISE's `netgen -sim` writes an SDF
@@ -157,7 +157,7 @@ the block RAM / DSP columns' interface tiles are separate classes,
 setup/hold checks. The result, `data/timing-xc6slx9-2.json`, is committed;
 `make timing-data` regenerates it (needs ISE).
 
-`gen/s6_timing.py` puts it in the chip database: pip class delays, and cell
+`s6-chipdb` puts it in the chip database: pip class delays, and cell
 timing for LUTs, FFs, CARRY4, wide muxes, RAM/SRL LUTs, BRAM, BUFGMUX and
 DSP48A1 (below). nextpnr then places and routes timing-driven and reports
 Fmax.
@@ -351,9 +351,12 @@ primary source is kept, as an always-on pip) and factory-test wires
   - Carry from CO3 to the CI of the slice above.
   - Pads to logic (I), logic to pads (O/T), and P56 (Mojo clock) to a BUFGMUX.
   - BUFGMUX to a FF clock input.
+  - VCC to a LUT input.
+  - DSP48A1 PCOUT to the PCIN of the DSP above (cascade).
 - Every bel input has a driver, except the CI at the bottom of each carry
-  chain. Every bel output has a load, except clock-pad outputs on pads that
-  aren't clock-capable.
+  chain and the cascade inputs of the bottom DSP in each column. Every bel
+  output has a load, except clock-pad outputs on pads that aren't
+  clock-capable and the cascade outputs of the top DSP.
 - The xc6slx9 has no inverting pips.
 
 ## The uarch (`nextpnr/himbaechel/uarch/spartan6`)

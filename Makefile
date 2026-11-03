@@ -11,7 +11,6 @@
 DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
-PYTHON         ?= python3
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
 # Everything synth_xilinx emits for xc6s is supported (see README for limits).
@@ -63,16 +62,22 @@ $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)
 # The delay model (data/timing-xc6slx9-2.json) is committed; `make timing-data`
 # regenerates it with ISE.
 TIMING_DATA := data/timing-$(DEVICE)-2.json
-$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json gen/s6_gen.py gen/s6_timing.py \
+S6CHIPDB := $(BUILD)/target/release/s6-chipdb
+$(S6CHIPDB): $(EXPORTER)
+
+$(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json $(S6CHIPDB) \
 		$(wildcard $(UARCH_DIR)/constids.inc) $(wildcard $(TIMING_DATA))
-	$(PYTHON) -I gen/s6_gen.py --nextpnr $(NEXTPNR) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@ \
+	$(S6CHIPDB) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@ \
 		$(if $(wildcard $(TIMING_DATA)),--timing $(TIMING_DATA))
 
 $(CHIPDB): $(BUILD)/$(DEVICE).bba $(BBASM)
 	$(BBASM) --l $< $@
 
-check: $(BUILD)/$(DEVICE).json
-	$(PYTHON) -I gen/check_db.py $<
+S6CHECK := $(BUILD)/target/release/s6-check
+$(S6CHECK): $(EXPORTER)
+
+check: $(BUILD)/$(DEVICE).json $(S6CHECK)
+	$(S6CHECK) $<
 
 # --- ISE names (for XDL) -----------------------------------------------------
 # Needs ISE (tools/ise-install.sh). s6-rawdump runs ISE's xdl/partgen through
@@ -196,8 +201,11 @@ timing-data: $(foreach t,$(TIMING_DESIGNS) $(TIMING_CELL_DESIGNS),$(BUILD)/$(t)/
 
 pnr:  $(T)/routed.json
 bit:  $(T)/design.bin
-load: $(T)/design.bin
-	$(PYTHON) -I tools/mojo-load.py $<
+S6LOAD := $(BUILD)/target/release/s6-load
+$(S6LOAD): $(EXPORTER)
+
+load: $(T)/design.bin $(S6LOAD)
+	$(S6LOAD) $<
 ise-check: $(T)/design.bin $(T)/ise.bin
 	$(S6BITGEN) --db $(DB) diff $(T)/ise.bin $(T)/design.bin | tail -1
 	cmp $(T)/ise.bin $(T)/design.bin && echo "$(TEST): s6-bitgen output is identical to ISE bitgen"
