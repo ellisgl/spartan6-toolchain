@@ -37,6 +37,8 @@ po::options_description Spartan6Impl::getUArchOptions()
     po::options_description specific("Spartan-6 specific options");
     specific.add_options()("ucf", po::value<std::string>(), "UCF constraints file (LOC, IOSTANDARD, ...)");
     specific.add_options()("nolut5", "don't pair LUTs into shared LUT6/LUT5 sites");
+    specific.add_options()("ff5pass", "put every eligible FF on a 5FF through a pass-through LUT5");
+    specific.add_options()("noff5pass", "never add pass-through LUT5s for 5FFs");
     return specific;
 }
 
@@ -95,6 +97,7 @@ void Spartan6Impl::pack()
     pack_carries();
     pack_wide();
     pack_lut_pairs();
+    pack_ff5_passthrough();
     propagate_clock_constraints();
 }
 

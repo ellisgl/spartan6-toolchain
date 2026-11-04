@@ -99,6 +99,7 @@ struct Spartan6Impl : HimbaechelAPI
     void pack_clocking();
     void pack_logic();
     void pack_lut_pairs();
+    void pack_ff5_passthrough();
     void pack_carries();
     void pack_wide();
     void pack_bram();

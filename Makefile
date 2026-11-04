@@ -163,9 +163,13 @@ else
 ucf_for = $(wildcard tests/$(1)/pins-$(PACKAGE).ucf)
 endif
 
+# Extra nextpnr options, e.g. NPNR_OPTS="-o ff5pass" (outputs aren't
+# rebuilt when only this changes: remove build/<test>/routed.json).
+NPNR_OPTS ?=
+
 $(DBUILD)/%/routed.json: $(DBUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $(NPNR_BIN)
 	$(NPNR_BIN) --device $(DEVICE)-$(SPEED)$(PACKAGE) --chipdb $(CHIPDB) --json $< \
-		$(if $(call ucf_for,$*),-o ucf=$(call ucf_for,$*)) --write $@ --log $(dir $@)nextpnr.log
+		$(if $(call ucf_for,$*),-o ucf=$(call ucf_for,$*)) $(NPNR_OPTS) --write $@ --log $(dir $@)nextpnr.log
 
 $(S6BITGEN): $(EXPORTER)
 

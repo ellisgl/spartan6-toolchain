@@ -24,6 +24,8 @@
 #define HIMBAECHEL_CONSTIDS "uarch/spartan6/constids.inc"
 #include "himbaechel_constids.h"
 
+#include <map>
+
 #include "spartan6.h"
 
 NEXTPNR_NAMESPACE_BEGIN
@@ -856,6 +858,142 @@ void Spartan6Impl::pack_lut_pairs()
         }
     }
     log_info("Packed %d LUT pairs into shared LUT6/LUT5 sites, %d with a 5FF.\n", pairs, ff5s);
+}
+
+// 5FFs for FFs that don't sit behind a paired LUT: a pass-through LUT5
+// (O5 = A1 = the FF's D) in front of the FF lets it use the letter's 5FF,
+// whose D is hardwired to O5. Each pass-through shares a LUT6 site with an
+// unpaired LUT of at most 4 inputs; with none left, two FFs share a site,
+// both through pass-throughs (LUT6 half -> main FF, LUT5 half -> 5FF).
+// The pass-through costs a LUT delay, so this only runs when the main FFs
+// would be nearly full (or with -o ff5pass, for every eligible FF).
+void Spartan6Impl::pack_ff5_passthrough()
+{
+    if (ctx->args.options.count("nolut5") || ctx->args.options.count("noff5pass"))
+        return;
+    bool force = ctx->args.options.count("ff5pass");
+
+    int main_sites = 0;
+    for (BelId bel : ctx->getBels()) {
+        int z = ctx->getBelLocation(bel).z;
+        if (ctx->getBelType(bel) == id_SLICE_FF && s6z::is_slice(z) && s6z::kind(z) == s6z::FF)
+            main_sites++;
+    }
+    // Candidates: unclustered flip-flops (latches can't be 5FFs) with a
+    // driven, non-constant D. Register-to-register ones first: their paths
+    // have the most room for the extra LUT.
+    std::vector<CellInfo *> cands, later;
+    int main_ffs = 0;
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type != id_SLICE_FF)
+            continue;
+        main_ffs++;
+        NetInfo *d = ci->getPort(id_D);
+        if (ci->cluster != ClusterId() || ci->params.at(id_FF_TYPE).as_string().rfind("LD", 0) == 0 || !d ||
+            !d->driver.cell || d->constant_value != IdString())
+            continue;
+        (d->driver.cell->type.in(id_SLICE_FF, id_SLICE_FF5, id_IOB) ? cands : later).push_back(ci);
+    }
+    cands.insert(cands.end(), later.begin(), later.end());
+    // Leave ~10% of the main FFs free: slice control sets and placement keep
+    // some from being used.
+    int want = force ? int(cands.size()) : std::min<int>(cands.size(), main_ffs - main_sites * 9 / 10);
+    if (want <= 0)
+        return;
+
+    NetInfo *vcc = ctx->nets.at(ctx->id("$PACKER_VCC")).get();
+    auto make_pass = [&](CellInfo *ff, IdString type) {
+        NetInfo *d = ff->getPort(id_D);
+        CellInfo *lut = ctx->createCell(ctx->idf("%s$ff5_pass", ff->name.c_str(ctx)), type);
+        lut->addInput(id_A1);
+        lut->addOutput(id_O);
+        lut->params[id_INIT] = Property(0b10, 2); // O = A1
+        lut->connectPort(id_A1, d);
+        NetInfo *o = ctx->createNet(ctx->idf("%s$ff5_d", ff->name.c_str(ctx)));
+        lut->connectPort(id_O, o);
+        ff->disconnectPort(id_D);
+        ff->connectPort(id_D, o);
+        return lut;
+    };
+    auto child = [&](CellInfo *root, CellInfo *c, int z) {
+        root->constr_children.push_back(c);
+        c->cluster = root->name;
+        c->constr_x = 0;
+        c->constr_y = 0;
+        c->constr_z = z - s6z::LUT6;
+        c->constr_abs_z = false;
+    };
+    // Pair `root` (on the LUT6 half) with a pass-through for `ff` (LUT5 half).
+    std::vector<NetInfo *> root_in, merged;
+    auto attach = [&](CellInfo *root, CellInfo *ff) {
+        CellInfo *pass = make_pass(ff, id_SLICE_LUT5);
+        s6lut::inputs(root, root_in);
+        merged = root_in;
+        NetInfo *d = pass->getPort(id_A1);
+        if (std::find(merged.begin(), merged.end(), d) == merged.end())
+            merged.push_back(d);
+        s6lut::remap(ctx, root, merged);
+        s6lut::remap(ctx, pass, merged);
+        root->ports[id_A6].name = id_A6;
+        root->ports[id_A6].type = PORT_IN;
+        root->connectPort(id_A6, vcc);
+        root->cluster = root->name;
+        child(root, pass, s6z::LUT5);
+        ff->type = id_SLICE_FF5;
+        child(root, ff, s6z::FF5);
+    };
+
+    // Hosts: unpaired LUTs with at most 4 distinct inputs.
+    std::vector<CellInfo *> hosts;
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type == id_SLICE_LUT && ci->cluster == ClusterId() && s6lut::inputs(ci, root_in) &&
+            root_in.size() <= 4)
+            hosts.push_back(ci);
+    }
+    // `want` counts main FFs to free: one per hosted pass-through, one per
+    // pass-through pair (which takes two candidates).
+    int hosted = 0, doubled = 0;
+    size_t next = 0;
+    for (size_t h = 0; hosted < want && h < hosts.size() && next < cands.size(); h++) {
+        CellInfo *host = hosts[h], *ff = cands[next];
+        // Not a FF its own host drives: O6 would loop back to the site's inputs.
+        if (ff->getPort(id_D)->driver.cell == host)
+            continue;
+        attach(host, ff);
+        next++;
+        hosted++;
+    }
+    // Both FFs of a pair are in one slice, so they need the same control set
+    // (clock and its inversion, CE, SR, sync/async): pair within groups.
+    auto control_set = [&](const CellInfo *ff) {
+        std::string t = ff->params.at(id_FF_TYPE).as_string();
+        bool async = t == "FDCE" || t == "FDPE";
+        return std::make_tuple(ff->getPort(id_CK), ff->getPort(id_CE), ff->getPort(id_SR), clk_inverted(ff), async);
+    };
+    std::map<decltype(control_set(nullptr)), std::vector<CellInfo *>> groups;
+    std::vector<decltype(control_set(nullptr))> order; // first-seen, keeping the preference order
+    for (size_t i = next; i < cands.size(); i++) {
+        auto key = control_set(cands[i]);
+        auto &g = groups[key];
+        if (g.empty())
+            order.push_back(key);
+        g.push_back(cands[i]);
+    }
+    for (auto &key : order) {
+        auto &g = groups.at(key);
+        for (size_t i = 0; hosted + doubled < want && i + 1 < g.size(); i += 2) {
+            CellInfo *a = g[i], *b = g[i + 1];
+            CellInfo *root = make_pass(a, id_SLICE_LUT);
+            attach(root, b);
+            child(root, a, s6z::FF);
+            doubled++;
+        }
+    }
+    log_info("Moved %d FFs onto 5FFs through pass-through LUT5s (%d sharing a LUT's site, %d in pass-through "
+             "pairs).\n",
+             hosted + doubled, hosted, doubled);
 }
 
 NEXTPNR_NAMESPACE_END

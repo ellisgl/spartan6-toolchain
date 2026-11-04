@@ -68,6 +68,7 @@ make pnr       TEST=cylon   # yosys + nextpnr        -> build/cylon/routed.json
 make bit       TEST=cylon   # + s6-bitgen (no ISE)   -> build/cylon/design.bin
 make load      TEST=cylon   # + load into the Mojo's FPGA RAM
 make ise-check TEST=cylon   # ISE cross-check: XDL -> drc -> bitgen, must be byte-identical
+make bit TEST=cylon NPNR_OPTS="-o ff5pass"   # extra nextpnr options (remove routed.json first)
 ```
 
 Your own design: put it in `tests/<name>/<name>.v` with a `pins.ucf`, or run
@@ -155,6 +156,7 @@ talks to the Mojo over its USB serial port):
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `pllsel2` | `tools/pll2-test.py` | as `pll2` on a PLL_ADV, clock on CLKIN2 with CLKINSEL = 0 (DRP tied off) |
+| `ffcap` | `tools/ffcap-test.py` | 7680 FFs (960-stage, 8-lane shift register with reset): more than the main FFs, so 2629 sit on 5FFs through pass-through LUT5s |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -603,6 +605,16 @@ primary source is kept, as an always-on pip) and factory-test wires
   becomes the LUT5 half. `tests/fill` (5824 FFs, 7451 LUTs) only fits the
   xc6slx9 this way, and matches ISE bitgen byte for byte. XDL quirk: the 5FF
   element has no cfg values, so it is written `A5FF:<name>:`.
+- **5FFs through pass-through LUT5s** (`pack_ff5_passthrough`): when more
+  FFs are left than 90% of the main FF sites, FFs not behind a paired LUT
+  get a LUT5 with O5 = A1 = their D in front of them, so they can take a 5FF.
+  The pass-through shares a LUT6 site with an unpaired LUT of at most 4
+  inputs; with none left, two FFs with the same control set share a site,
+  both through pass-throughs (O6 -> main FF, O5 -> 5FF). Register-to-register
+  FFs go first (the most slack for the extra LUT delay). `-o ff5pass` does
+  it for every eligible FF (used to check it against ISE on small designs),
+  `-o noff5pass` never. `tests/ffcap` (7680 FFs) moves 2629 and runs on the
+  board; ten test designs with `-o ff5pass` are byte-identical to ISE.
 - **Placement rules:** the FFs in a slice share CLK, CE and SR, and
   sync/async mode; RAM/SRL LUTs share WE and the clock. Each bypass pin
   (AX..DX) and each `<L>MUX` output carries one net (FF D, carry DI and
@@ -616,9 +628,9 @@ primary source is kept, as an always-on pip) and factory-test wires
 
 Packer limits for now:
 
-- **5FFs only behind paired LUTs.** A FF fed by anything else (another FF,
-  an I/O, a LUT with other loads) uses a main FF; a pass-through LUT5 could
-  free those too.
+- **5FFs for other FFs only when the main FFs run out:** a pass-through
+  LUT5 costs a LUT delay, so below 90% of the main FF sites a FF not behind
+  a paired LUT stays on a main FF.
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
