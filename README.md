@@ -503,8 +503,11 @@ primary source is kept, as an always-on pip) and factory-test wires
   are carried through IOBs, BUFGs and BUFIO2s, and derived for DCM and PLL
   outputs from their multiply/divide parameters. Auto-named nets on the clock
   path are renamed after their source, so timing reports name clocks
-  `clk$bufg`, `clk$bufio2`, `clk$CLKFX` (named nets are kept). Derived
-  TIMESPECs (`TS_clk * 2`), OFFSET and FROM/TO are ignored with a warning.
+  `clk$bufg`, `clk$bufio2`, `clk$CLKFX` (named nets are kept).
+  `CLOCK_DEDICATED_ROUTE` is accepted without effect: nextpnr falls back to
+  general routing into a BUFG by itself where it has to (see BUFG inputs).
+  Derived TIMESPECs (`TS_clk * 2`), OFFSET and FROM/TO are ignored with a
+  warning.
 - **Packer:** maps IBUF/IBUFG/OBUF/OBUFT/IOBUF to `IOB`, BUFG to `BUFGMUX`,
   LUT1–6 and INV to `SLICE_LUT`, and FDRE/FDSE/FDCE/FDPE to `SLICE_FF`.
   A pad that only feeds clock loads uses `GCLK_I`. The clock tree is placed
@@ -720,7 +723,10 @@ TQG144's, as ISE lists them), VREF for the package's VREF pins.)
 - **Timing coverage:** the clock network's own wiring (BUFIO2/BUFPLL, the
   DCM/PLL clock inputs and outputs, the I/O clock lines: 38 classes, which
   `s6-chipdb` lists) uses a typical 250 ps per hop; it only matters across
-  clock domains. The delay model is measured for -2 and -3 (-3N uses -3's);
+  clock domains. The PLL's DRP pins (DCLK, DEN, DWE, DADDR, DI in; DO, DRDY
+  out) have no timing arcs, so DRP paths aren't timed (`plldrp` runs DCLK at
+  50 MHz on the board; measuring them needs DRP characterization designs
+  for `make timing-data`). The delay model is measured for -2 and -3 (-3N uses -3's);
   devices other than the xc6slx9 use the xc6slx9's (same fabric).
 - **GTP, PCIe and memory controller** blocks.
 

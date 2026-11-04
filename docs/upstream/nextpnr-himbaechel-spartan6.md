@@ -1,6 +1,6 @@
 # himbaechel: Spartan-6 uarch
 
-**Source:** `nextpnr/himbaechel/uarch/spartan6` here (~3,900 lines) and one
+**Source:** `nextpnr/himbaechel/uarch/spartan6` here (~4,400 lines) and one
 line in `himbaechel/CMakeLists.txt` (`spartan6` in `HIMBAECHEL_UARCHES`).
 Depends on the router2 fixes (separate PR).
 
@@ -16,18 +16,21 @@ features are also tested on a board (Mojo V3, xc6slx9).
 
 Supported:
 - **Logic:** slices as sub-bels (LUT6/LUT5 pairs, FFs and latches, 5FFs,
-  F7/F8 muxes, CARRY4 chains); LUT RAM and SRLs (RAM32/64/128/256, RAM32M,
+  F7/F8 muxes, CARRY4 chains; when the main FFs run out, other FFs go on
+  5FFs through pass-through LUT5s); LUT RAM and SRLs (RAM32/64/128/256, RAM32M,
   SRLC32E with cascades).
 - **Block RAM:** RAMB8/RAMB16.
 - **DSP48A1:** all pipeline options, the pre-adder, and PCOUT/BCOUT/CARRYOUT
   cascades as clusters.
 - **Clocking:** BUFG, DCM (DLL, CLKFX, fixed and variable phase shift),
-  PLL, BUFIO2/BUFIO2FB, with clock trees placed during packing.
+  PLL_BASE/PLL_ADV (constant or dynamic CLKINSEL, DRP from logic),
+  BUFIO2/BUFIO2FB, with clock trees placed during packing.
 - **I/O:** IOB, IOBUF, ODDR2/IDDR2 (including tristate, two clocks and
   set/reset), LVDS, the VREF standards (SSTL/HSTL) and LVCMOS/LVTTL; UCF
-  constraints.
+  constraints (pins, I/O standards and clock periods: PERIOD, TNM_NET +
+  TIMESPEC, carried through clock buffers and derived for DCM/PLL outputs).
 - **Timing:** a delay model fitted to ISE's timing data, for the -2 and -3
-  grades. DSP timing varies by configuration (608 variants), and paths
+  grades. DSP timing varies by configuration (1024 variants), and paths
   through cascades are timed.
 
 ## Chip database
@@ -44,5 +47,5 @@ the toolchain does now.
 ## Testing
 
 The toolchain's CI builds nextpnr with this uarch, the chip databases of
-six devices, and every test design. Its regression (about 110 designs) is
+six devices, and every test design. Its regression (145 designs) is
 checked byte-for-byte against ISE locally (ISE can't run in CI).

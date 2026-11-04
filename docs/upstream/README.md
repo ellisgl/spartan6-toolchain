@@ -10,7 +10,7 @@ an issue draft, `../prjcombine-sdf-issue.md`).
 |---|---|---|---|
 | [yosys-dsp48a-preadd.md](yosys-dsp48a-preadd.md) | YosysHQ/yosys | `xc6s-preadd-swap` on ellisgl/yosys | 59 lines (+ test) |
 | [nextpnr-router2-fixes.md](nextpnr-router2-fixes.md) | YosysHQ/nextpnr | `nextpnr/common/route/router2.cc` here | 9 lines |
-| [nextpnr-himbaechel-spartan6.md](nextpnr-himbaechel-spartan6.md) | YosysHQ/nextpnr | `nextpnr/himbaechel/uarch/spartan6` here | ~3,900 lines |
+| [nextpnr-himbaechel-spartan6.md](nextpnr-himbaechel-spartan6.md) | YosysHQ/nextpnr | `nextpnr/himbaechel/uarch/spartan6` here | ~4,400 lines |
 
 Suggested order: the router2 fixes first (small, general, and the uarch
 relies on them), then the uarch. The yosys change is independent.

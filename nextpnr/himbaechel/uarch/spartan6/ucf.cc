@@ -10,8 +10,10 @@
  *  or through a timing group:
  *      NET "<net>" TNM_NET = <group>;
  *      TIMESPEC <TS_name> = PERIOD "<group>" <time> [HIGH|LOW <duty>];
- *  Other statements (derived TIMESPECs, OFFSET, FROM/TO, INST constraints)
- *  are warned about and ignored.
+ *  CLOCK_DEDICATED_ROUTE is accepted (nextpnr falls back to general routing
+ *  for a BUFG by itself where it has to). Other statements (derived
+ *  TIMESPECs, OFFSET, FROM/TO, INST constraints) are warned about and
+ *  ignored.
  *
  *  Permission to use, copy, modify, and/or distribute this software for any
  *  purpose with or without fee is hereby granted, provided that the above
@@ -182,6 +184,16 @@ void Spartan6Impl::read_ucf(const std::string &filename)
             std::string value = kv[2].matched ? unquote(kv[2].str()) : "TRUE";
             if (key == "TNM_NET") {
                 groups[value].push_back(port);
+                continue;
+            }
+            if (key == "CLOCK_DEDICATED_ROUTE") {
+                // ISE's override for a clock that can't use the dedicated pad
+                // -> BUFG path. nextpnr needs no constraint for it: it uses
+                // general routing by itself where that is required (with a
+                // warning), so the constraint only gets acknowledged.
+                log_info("    %s: CLOCK_DEDICATED_ROUTE = %s accepted (nextpnr falls back to general routing "
+                         "by itself where it has to)\n",
+                         port.c_str(), value.c_str());
                 continue;
             }
             if (key == "PERIOD") {
