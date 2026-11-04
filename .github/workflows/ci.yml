@@ -30,8 +30,11 @@ jobs:
 
       - uses: YosysHQ/setup-oss-cad-suite@v3
 
+      # Restore and save separately: the key follows the nextpnr sources, so
+      # a run that didn't change them (an exact hit) has nothing to save.
       - name: ccache
-        uses: actions/cache@v4
+        id: ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ hashFiles('nextpnr/**/*.cc', 'nextpnr/**/*.h') }}
@@ -46,6 +49,13 @@ jobs:
 
       - name: Build nextpnr and the chip database
         run: make -j$(nproc) NPNR_CMAKE_FLAGS=-DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Save ccache
+        if: steps.ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ steps.ccache.outputs.cache-primary-key }}
 
       - name: Chip database checks
         run: make check
