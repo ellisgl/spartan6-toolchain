@@ -3,7 +3,7 @@
 //! nextpnr's Python himbaechel_dbgen; this writes the same .bba text).
 //!
 //!     s6-chipdb --json build/xc6slx9.json --constids <uarch>/constids.inc \
-//!               [--timing data/timing-xc6slx9-2.json] --bba build/xc6slx9.bba
+//!               [--timing data/timing-xc6slx9-2.json ...] --bba build/xc6slx9.bba
 
 mod dbgen;
 mod timing;
@@ -28,9 +28,11 @@ struct Args {
     /// The uarch's constids.inc to preload.
     #[arg(long)]
     constids: Option<PathBuf>,
-    /// Delay model from s6-timing.
+    /// Delay model from s6-timing, one file per measured speed grade
+    /// (data/timing-xc6slx9-<grade>.json); grades without one take the -2
+    /// file's (or the first's) values.
     #[arg(long)]
-    timing: Option<String>,
+    timing: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -220,10 +222,10 @@ fn main() {
             }
         }
     }
-    if let Some(t) = &args.timing {
+    if !args.timing.is_empty() {
         let classes: Vec<String> =
             dev.tile_types.iter().flat_map(|t| t.pips.iter().map(|p| p.timing_class.clone())).collect();
-        timing::add_timing(&mut ch, &dev.speed_grades, &classes, t);
+        timing::add_timing(&mut ch, &dev.speed_grades, &classes, &args.timing);
     }
 
     let n_pips: usize = dev.tile_types.iter().map(|t| t.pips.len()).sum();

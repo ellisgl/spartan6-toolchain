@@ -10,6 +10,8 @@
 
 DEVICE         ?= xc6slx9
 PACKAGE        ?= tqg144
+# Speed grade (2, 3 or 3N on the xc6slx9; the Mojo V3 has a -2).
+SPEED          ?= 2
 PRJCOMBINE_REV := 2b3317db3799b82b3ef5606438145ba76b9b4485
 YOSYS          ?= yosys
 JOBS           ?= $(shell nproc)
@@ -62,16 +64,19 @@ $(BUILD)/$(DEVICE).json: $(EXPORTER) $(DB)
 	$(EXPORTER) --db $(DB) --device $(DEVICE) --out $@
 
 # The uarch's constids are preloaded so string indices match the compiled uarch.
-# The delay model (data/timing-xc6slx9-2.json) is committed; `make timing-data`
-# regenerates it with ISE.
-TIMING_DATA := data/timing-$(DEVICE)-2.json
+# The delay model is measured on the xc6slx9 (the other devices share its
+# fabric), one committed file per speed grade measured
+# (data/timing-xc6slx9-<speed>.json); `make timing-data [SPEED=..]` regenerates
+# one with ISE.
+TIMING_FILES := $(wildcard data/timing-xc6slx9-*.json)
+TIMING_DATA  := data/timing-xc6slx9-$(SPEED).json
 S6CHIPDB := $(BUILD)/target/release/s6-chipdb
 $(S6CHIPDB): $(EXPORTER)
 
 $(BUILD)/$(DEVICE).bba: $(BUILD)/$(DEVICE).json $(S6CHIPDB) \
-		$(wildcard $(UARCH_DIR)/constids.inc) $(wildcard $(TIMING_DATA))
+		$(wildcard $(UARCH_DIR)/constids.inc) $(TIMING_FILES)
 	$(S6CHIPDB) --constids $(UARCH_DIR)/constids.inc --json $< --bba $@ \
-		$(if $(wildcard $(TIMING_DATA)),--timing $(TIMING_DATA))
+		$(foreach f,$(TIMING_FILES),--timing $(f))
 
 $(CHIPDB): $(BUILD)/$(DEVICE).bba $(BBASM)
 	$(BBASM) --l $< $@
@@ -126,12 +131,12 @@ $(S6XDL): $(EXPORTER)
 # XDL_MODE=routed (default) checks our routing; XDL_MODE=pins lets ISE route.
 
 TEST ?= blinky
-# Per-design outputs: build/<test> for the xc6slx9 TQG144 (the Mojo V3),
-# build/<device>-<package>/<test> for any other device.
-ifeq ($(DEVICE)-$(PACKAGE),xc6slx9-tqg144)
+# Per-design outputs: build/<test> for the xc6slx9-2 TQG144 (the Mojo V3),
+# build/<device>-<package>[-<speed>]/<test> for any other device or speed.
+ifeq ($(DEVICE)-$(PACKAGE)-$(SPEED),xc6slx9-tqg144-2)
 DBUILD := $(BUILD)
 else
-DBUILD := $(BUILD)/$(DEVICE)-$(PACKAGE)
+DBUILD := $(BUILD)/$(DEVICE)-$(PACKAGE)$(if $(filter-out 2,$(SPEED)),-$(SPEED))
 endif
 T    := $(DBUILD)/$(TEST)
 S6BITGEN := $(BUILD)/target/release/s6-bitgen
@@ -152,14 +157,14 @@ $(DBUILD)/%/synth.json: $$(wildcard tests/$$*/*.v) $(wildcard tests/common/*.v) 
 
 # Pins: on the Mojo, tests/<name>/pins.ucf or tests/mojo_v3.ucf; on other
 # packages tests/<name>/pins-<package>.ucf, or none (nextpnr picks the pads).
-ifeq ($(DBUILD),$(BUILD))
+ifeq ($(DEVICE)-$(PACKAGE),xc6slx9-tqg144)
 ucf_for = $(if $(wildcard tests/$(1)/pins.ucf),tests/$(1)/pins.ucf,tests/mojo_v3.ucf)
 else
 ucf_for = $(wildcard tests/$(1)/pins-$(PACKAGE).ucf)
 endif
 
 $(DBUILD)/%/routed.json: $(DBUILD)/%/synth.json $$(call ucf_for,$$*) $(CHIPDB) $(NPNR_BIN)
-	$(NPNR_BIN) --device $(DEVICE)-2$(PACKAGE) --chipdb $(CHIPDB) --json $< \
+	$(NPNR_BIN) --device $(DEVICE)-$(SPEED)$(PACKAGE) --chipdb $(CHIPDB) --json $< \
 		$(if $(call ucf_for,$*),-o ucf=$(call ucf_for,$*)) --write $@ --log $(dir $@)nextpnr.log
 
 $(S6BITGEN): $(EXPORTER)
@@ -173,7 +178,7 @@ XDL_ARGS_routed := --rawdump $(RAWDUMP) --chipdb-json $(BUILD)/$(DEVICE).json
 XDL_ARGS_pins   := --pins-only
 
 $(DBUILD)/%/design.xdl: $(DBUILD)/%/routed.json $(S6XDL) $(GEOM) $(DB) $(RAWDUMP) $(BUILD)/$(DEVICE).json
-	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --device $(DEVICE) --package $(PACKAGE) --out $@
+	$(S6XDL) --db $(DB) --geom $(GEOM) $(XDL_ARGS_$(XDL_MODE)) --routed $< --device $(DEVICE) --package $(PACKAGE) --speed $(SPEED) --out $@
 
 # ISE: XDL -> NCD, (route with par in pins mode), DRC, bitstream.
 $(DBUILD)/%/ise.bin: $(DBUILD)/%/design.xdl
@@ -203,17 +208,17 @@ S6TIMING := $(BUILD)/target/release/s6-timing
 $(S6TIMING): $(EXPORTER)
 
 # ISE's timing simulation SDF for the NCD built from our XDL by ise-check.
-$(BUILD)/%/timing_sim.sdf: $(BUILD)/%/ise.bin
+$(DBUILD)/%/timing_sim.sdf: $(DBUILD)/%/ise.bin
 	cd $(dir $@) && ISE_MOUNT=$(abspath $(dir $@)) $(abspath $(ISE)) netgen -sim -ofmt verilog -w \
 		design_routed.ncd timing_sim.v > netgen.log
 
 # Not a file rule: the chip database depends on the committed data file, and
 # make must never try to regenerate it (that needs ISE).
-timing-data: $(foreach t,$(TIMING_DESIGNS) $(TIMING_CELL_DESIGNS),$(BUILD)/$(t)/timing_sim.sdf) $(S6TIMING) $(BUILD)/$(DEVICE).json
+timing-data: $(foreach t,$(TIMING_DESIGNS) $(TIMING_CELL_DESIGNS),$(DBUILD)/$(t)/timing_sim.sdf) $(S6TIMING) $(BUILD)/$(DEVICE).json
 	@mkdir -p data
-	$(S6TIMING) --chipdb-json $(BUILD)/$(DEVICE).json --out $(TIMING_DATA) \
-		$(foreach t,$(TIMING_DESIGNS),--design $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf) \
-		$(foreach t,$(TIMING_CELL_DESIGNS),--cells-only $(BUILD)/$(t)/routed.json:$(BUILD)/$(t)/timing_sim.sdf)
+	$(S6TIMING) --chipdb-json $(BUILD)/$(DEVICE).json --out $(TIMING_DATA) --speed $(SPEED) \
+		$(foreach t,$(TIMING_DESIGNS),--design $(DBUILD)/$(t)/routed.json:$(DBUILD)/$(t)/timing_sim.sdf) \
+		$(foreach t,$(TIMING_CELL_DESIGNS),--cells-only $(DBUILD)/$(t)/routed.json:$(DBUILD)/$(t)/timing_sim.sdf)
 .PHONY: timing-data
 
 pnr:  $(T)/routed.json

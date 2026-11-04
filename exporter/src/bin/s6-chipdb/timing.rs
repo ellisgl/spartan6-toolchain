@@ -9,8 +9,9 @@
 //!   arcs, mapped from ISE's simulation primitives (X_LUT6, X_SFF, ...) to
 //!   our cell types and pin names.
 //!
-//! Only the -2 speed grade was measured; the other grades get the same values
-//! (pessimistic for -3).
+//! One data file per measured speed grade (data/timing-xc6slx9-<grade>.json);
+//! a grade without one takes the -2 file's values (pessimistic for -3), and
+//! -3N the -3 file's.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -104,7 +105,24 @@ impl Cells<'_> {
     }
 }
 
-pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String], path: &str) {
+pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String], paths: &[String]) {
+    // The file for each grade ("-3N" -> "...-3N.json", else "...-3.json"),
+    // else the -2 one, else the first.
+    let file_for = |grade: &str| -> &String {
+        let g = grade.trim_start_matches('-');
+        let base = g.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+        [g, base, "2"]
+            .iter()
+            .find_map(|k| paths.iter().find(|p| p.ends_with(&format!("-{k}.json"))))
+            .unwrap_or(&paths[0])
+    };
+    for grade in speed_grades {
+        let path = file_for(grade);
+        add_grade(ch, grade, pip_classes, path);
+    }
+}
+
+fn add_grade(ch: &mut Chip, grade: &str, pip_classes: &[String], path: &str) {
     let data: Data = serde_json::from_str(&std::fs::read_to_string(path).expect("read timing data")).expect("timing data");
     let mut fitted: HashMap<String, f64> = data.pip_classes.iter().map(|(k, v)| (k.clone(), v.delay_ps)).collect();
     for (k, v) in &data.pip_classes {
@@ -118,7 +136,7 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
     let classes: BTreeSet<&String> = pip_classes.iter().collect();
     let cd = Cells(&data);
     let mut unmeasured: Vec<&str> = vec![];
-    for (gi, grade) in speed_grades.iter().enumerate() {
+    {
         for &cls in &classes {
             if !fitted.contains_key(cls)
                 && let Some((base, _)) = cls.split_once('@')
@@ -131,9 +149,7 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
             } else if cls.starts_with("SITE:") || cls == "BELOUT" || cls == "PERMABUF" {
                 0.0
             } else {
-                if gi == 0 {
-                    unmeasured.push(cls);
-                }
+                unmeasured.push(cls);
                 DEFAULT_ROUTING_PS
             };
             ch.set_pip_class(grade, cls, ps(d));
@@ -141,12 +157,13 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
         add_cells(ch, grade, &cd);
     }
     println!(
-        "timing: {} pip classes ({} measured or zero), {} speed grades from {path}",
+        "timing: {grade}: {} pip classes ({} measured or zero) from {path}",
         classes.len(),
         classes.len() - unmeasured.len(),
-        speed_grades.len()
     );
-    println!("timing: unmeasured ({DEFAULT_ROUTING_PS} ps each): {}", unmeasured.join(" "));
+    if grade == "-2" {
+        println!("timing: unmeasured ({DEFAULT_ROUTING_PS} ps each): {}", unmeasured.join(" "));
+    }
 }
 
 fn add_cells(ch: &mut Chip, grade: &str, cd: &Cells) {

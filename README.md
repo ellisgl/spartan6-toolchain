@@ -85,6 +85,11 @@ Eigen (for nextpnr), and Yosys. The hardware test scripts in `tools/` need
 Python 3.10+ with pyserial. Only `make ise-check` and `make timing-data` need
 ISE (see below).
 
+**Speed grade.** `SPEED=3` (default 2, the Mojo's) times and checks a design
+at -3: outputs go to `build/<device>-<package>-3/<test>`, and the chip
+database has the measured -2 and -3 delay models (`data/timing-xc6slx9-2.json`,
+`-3.json`; `make timing-data SPEED=3` regenerates the -3 one).
+
 **Other devices.** `DEVICE` and `PACKAGE` select another Spartan-6 LX/LXT
 part; outputs go to `build/<device>-<package>/<test>`:
 
@@ -657,8 +662,8 @@ Packer limits for now:
 - **Timing coverage:** the clock network's own wiring (BUFIO2/BUFPLL, the
   DCM/PLL clock inputs and outputs, the I/O clock lines: 38 classes, which
   `s6-chipdb` lists) uses a typical 250 ps per hop; it only matters across
-  clock domains. The delay model was measured for -2 only (the other speed
-  grades get the same numbers).
+  clock domains. The delay model is measured for -2 and -3 (-3N uses -3's);
+  devices other than the xc6slx9 use the xc6slx9's (same fabric).
 - **PLL CLKINSEL from logic** (see the uarch section) and the GTP, PCIe and
   memory controller blocks.
 

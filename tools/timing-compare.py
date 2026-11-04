@@ -3,6 +3,7 @@
 same placement and routing.
 
     tools/timing-compare.py alu rom fill ...
+    tools/timing-compare.py --build build/xc6slx9-tqg144-3 alu ...   # another speed / device
 
 Each design needs build/<name>/design_routed.ncd (make ise-check TEST=<name>)
 and build/<name>/nextpnr.log. Prints, per design, nextpnr's worst
@@ -60,9 +61,13 @@ def ise_period(build):
 
 
 def main():
+    args = sys.argv[1:]
+    base = os.path.join(ROOT, "build")
+    if args[:1] == ["--build"]:
+        base, args = os.path.abspath(args[1]), args[2:]
     print(f"{'design':12} {'nextpnr':>10} {'ISE trce':>10} {'error':>8}")
-    for name in sys.argv[1:]:
-        build = os.path.join(ROOT, "build", name)
+    for name in args:
+        build = os.path.join(base, name)
         n = nextpnr_period(os.path.join(build, "nextpnr.log"))
         i = ise_period(build)
         if n is None or i is None:

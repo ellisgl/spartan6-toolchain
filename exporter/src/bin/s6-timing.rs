@@ -35,6 +35,9 @@ struct Args {
     /// Print the worst-fitting connections.
     #[arg(long, default_value_t = 10)]
     show_worst: usize,
+    /// The speed grade the designs were timed at (recorded in the output).
+    #[arg(long, default_value = "2")]
+    speed: String,
 }
 
 /// Wire -> node lookup and per-tile wire/bel-pin names from the chipdb JSON.
@@ -332,7 +335,7 @@ fn main() {
         .map(|((t, d, c), (s, h))| json!({"celltype": t, "data": d, "clock": c, "setup_ps": max(s), "hold_ps": max(h)}))
         .collect();
     let out = json!({
-        "source": "ISE 14.7 netgen SDF, xc6slx9-2, 85C 1.14V (max delays)",
+        "source": format!("ISE 14.7 netgen SDF, xc6slx9-{}, 85C 1.14V (max delays)", args.speed),
         "fit": {"connections": samples.len(), "rms_error_ps": rms, "mean_delay_ps": mean_d},
         "pip_classes": pips,
         "cell_delays": cells_out,
