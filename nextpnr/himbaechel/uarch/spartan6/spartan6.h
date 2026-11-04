@@ -93,6 +93,8 @@ struct Spartan6Impl : HimbaechelAPI
 
     // Flow helpers (pack.cc / ucf.cc)
     void read_ucf(const std::string &filename);
+    void set_clock(NetInfo *net, double period_ns, double high);
+    void propagate_clock_constraints();
     void pack_io();
     void pack_clocking();
     void pack_logic();

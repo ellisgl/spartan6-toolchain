@@ -95,6 +95,7 @@ void Spartan6Impl::pack()
     pack_carries();
     pack_wide();
     pack_lut_pairs();
+    propagate_clock_constraints();
 }
 
 bool Spartan6Impl::checkPipAvail(PipId pip) const

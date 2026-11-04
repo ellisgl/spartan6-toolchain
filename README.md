@@ -478,7 +478,12 @@ primary source is kept, as an always-on pip) and factory-test wires
 
 - **Device and pins:** parses the device (`xc6slx9[-speed]tqg144`), loads the
   chip database and reads a UCF subset (`-o ucf=`): LOC, IOSTANDARD, DRIVE,
-  SLEW, PULLUP, PULLDOWN. Bus syntax `led<0>` maps to `led[0]`.
+  SLEW, PULLUP, PULLDOWN, and clock periods (`NET ... PERIOD = ...`, or
+  `TNM_NET` with `TIMESPEC ... = PERIOD "<group>" ...`; times or frequencies,
+  optional `HIGH`/`LOW` duty). Bus syntax `led<0>` maps to `led[0]`. Periods
+  are carried through IOBs, BUFGs and BUFIO2s, and derived for DCM and PLL
+  outputs from their multiply/divide parameters; derived TIMESPECs
+  (`TS_clk * 2`), OFFSET and FROM/TO are ignored with a warning.
 - **Packer:** maps IBUF/IBUFG/OBUF/OBUFT/IOBUF to `IOB`, BUFG to `BUFGMUX`,
   LUT1–6 and INV to `SLICE_LUT`, and FDRE/FDSE/FDCE/FDPE to `SLICE_FF`.
   A pad that only feeds clock loads uses `GCLK_I`. The clock tree is placed

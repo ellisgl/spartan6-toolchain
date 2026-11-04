@@ -118,6 +118,12 @@ void Spartan6Impl::pack_io()
         IdString orig_type = ci->type;
         ci->params[ctx->id("IO_TYPE")] = orig_type.str(ctx);
 
+        // A clock period given on the port moves to the pad's fabric-side net.
+        if (pad_net->clkconstr && orig_type.in(id_IBUF, id_IBUFG, id_IOBUF)) {
+            NetInfo *fabric = ci->getPort(id_O);
+            if (fabric && !fabric->clkconstr)
+                fabric->clkconstr = std::make_unique<ClockConstraint>(*pad_net->clkconstr);
+        }
         if (orig_type.in(id_IBUF, id_IBUFG)) {
             drop_port(ci, id_I);
             rename_if(ci, id_O, id_I);
