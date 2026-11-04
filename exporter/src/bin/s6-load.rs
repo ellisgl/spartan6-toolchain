@@ -96,6 +96,20 @@ impl Port {
         out
     }
 
+    /// Up to `n` bytes, giving up once nothing has arrived for `idle`: for
+    /// long transfers, whose total time depends on the link.
+    fn read_idle(&mut self, n: usize, idle: Duration) -> Vec<u8> {
+        let mut out = vec![];
+        while out.len() < n {
+            let chunk = self.read(n - out.len(), idle);
+            if chunk.is_empty() {
+                break;
+            }
+            out.extend_from_slice(&chunk);
+        }
+        out
+    }
+
     fn write(&mut self, data: &[u8]) {
         self.0.write_all(data).unwrap_or_else(|e| fail(e));
     }
@@ -149,10 +163,20 @@ fn main() {
         if size != data.len() + 5 {
             fail(format!("flash size mismatch ({size} != {})", data.len() + 5));
         }
-        let back = port.read(data.len(), Duration::from_secs(10));
-        if back != data {
-            let bad = back.iter().zip(&data).position(|(a, b)| a != b).unwrap_or(back.len());
-            fail(format!("verification failed at byte {bad} of {}", data.len()));
+        // The readback takes about as long as the upload (~18 s for an LX9
+        // bitstream), so time out on silence, not on the total.
+        let t1 = Instant::now();
+        let back = port.read_idle(data.len(), Duration::from_secs(2));
+        if let Some(bad) = back.iter().zip(&data).position(|(a, b)| a != b) {
+            fail(format!("verification failed: byte {bad} of {} differs", data.len()));
+        }
+        if back.len() < data.len() {
+            fail(format!(
+                "verification incomplete: the Mojo stopped sending after {} of {} bytes ({:.1} s)",
+                back.len(),
+                data.len(),
+                t1.elapsed().as_secs_f64()
+            ));
         }
         println!("flash verified");
         port.write(b"L");
