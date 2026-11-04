@@ -273,6 +273,14 @@ impl TypeBuilder {
         if timing_class.starts_with("IMUX") && self.out.name.split('+').any(|c| c == "INTF") {
             timing_class += "@INTF";
         }
+        // Routing in the I/O tiles' interconnect (INT_IOI, the die's outer
+        // rows and columns) is slower than in the fabric's, as ISE times it.
+        if !timing_class.starts_with("SITE:")
+            && !matches!(timing_class.as_str(), "BELOUT" | "PERMABUF")
+            && self.out.name.split('+').any(|c| c == "INT_IOI")
+        {
+            timing_class += "@IOI";
+        }
         self.out.pips.push(OutPip { src, dst, kind, inv, timing_class, src_ref });
     }
 }

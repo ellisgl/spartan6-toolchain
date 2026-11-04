@@ -447,6 +447,10 @@ fn main() {
     let mut instances: Vec<Instance> = vec![];
     // OLOGIC (ODDR2) cells and their pads: (ologic bel, inst, iob bel, iob inst).
     let mut diff_links: Vec<DiffLink> = vec![];
+    // Candidate inputs whose pin reaches the bel only through a slice mux
+    // (an FF's bypass pin <L>X): the pin is used only where a mux reads it,
+    // not where a route merely bounces through its wire.
+    let mut mux_only: HashSet<(usize, String)> = HashSet::new();
     // (OLOGIC, instance, its IOB, pad name, tristate register used)
     let mut ologic_pads: Vec<(BelCoord, String, BelCoord, String, bool)> = vec![];
     // ILOGIC (IDDR2) cells and their pads: (ilogic bel, inst, iob bel, iob inst).
@@ -707,6 +711,7 @@ fn main() {
                     if routed {
                         // D comes through a slice mux (a SITE pip); the bypass pin <L>X if routed there.
                         cands.insert((ci, "D".into()), site_cand(format!("{l}X"), false));
+                        mux_only.insert((ci, "D".into()));
                         cands.insert((ci, "Q".into()), site_cand(format!("{l}Q"), true));
                         for (port, pin) in [("CK", "CLK"), ("CE", "CE"), ("SR", "SR")] {
                             if c.conns.contains_key(port) {
@@ -1467,7 +1472,9 @@ fn main() {
                         // An input with alternative pins (DI1: its own X or DX):
                         // the route may pass through one pin's wire on the way to
                         // the other; the pin is the one a slice mux reads.
-                        let entered = !*output && pins.len() > 1 && pins.iter().any(|p| consumed.contains(&wire(p)));
+                        let entered = !*output
+                            && (mux_only.contains(&(*ci, port.clone()))
+                                || (pins.len() > 1 && pins.iter().any(|p| consumed.contains(&wire(p)))));
                         for pin in pins {
                             let w = names.site_pin_wire(*bcrd, pin).unwrap();
                             let c = canon(w);

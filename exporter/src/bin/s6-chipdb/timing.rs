@@ -117,7 +117,7 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
     }
     let classes: BTreeSet<&String> = pip_classes.iter().collect();
     let cd = Cells(&data);
-    let mut unmeasured = 0;
+    let mut unmeasured: Vec<&str> = vec![];
     for (gi, grade) in speed_grades.iter().enumerate() {
         for &cls in &classes {
             if !fitted.contains_key(cls)
@@ -132,7 +132,7 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
                 0.0
             } else {
                 if gi == 0 {
-                    unmeasured += 1;
+                    unmeasured.push(cls);
                 }
                 DEFAULT_ROUTING_PS
             };
@@ -143,9 +143,10 @@ pub fn add_timing(ch: &mut Chip, speed_grades: &[String], pip_classes: &[String]
     println!(
         "timing: {} pip classes ({} measured or zero), {} speed grades from {path}",
         classes.len(),
-        classes.len() - unmeasured,
+        classes.len() - unmeasured.len(),
         speed_grades.len()
     );
+    println!("timing: unmeasured ({DEFAULT_ROUTING_PS} ps each): {}", unmeasured.join(" "));
 }
 
 fn add_cells(ch: &mut Chip, grade: &str, cd: &Cells) {

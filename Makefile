@@ -195,7 +195,7 @@ endif
 #                      # into data/timing-xc6slx9-2.json (see s6-timing).
 #                      # Uses the current routes, so run it after `make`.
 
-TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate speed
+TIMING_DESIGNS ?= uart_echo alu rom bram dsp fill lutram clocks tristate speed pll2 oddr dll
 # DSP48A1 characterization, with and without cascades (tools/gen_dsp_char.py):
 # cell timing only.
 TIMING_CELL_DESIGNS ?= $(notdir $(wildcard tests/dsp_char* tests/dsp_casc_char*))

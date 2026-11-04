@@ -46915,6 +46915,48 @@
       "setup_ps": 130.0
     },
     {
+      "celltype": "X_ODDR2",
+      "clock": "C0",
+      "data": "CE",
+      "hold_ps": 0.0,
+      "setup_ps": 1150.0
+    },
+    {
+      "celltype": "X_ODDR2",
+      "clock": "C1",
+      "data": "CE",
+      "hold_ps": 0.0,
+      "setup_ps": 1150.0
+    },
+    {
+      "celltype": "X_ODDR2",
+      "clock": "C0",
+      "data": "D0",
+      "hold_ps": 0.0,
+      "setup_ps": 1117.0
+    },
+    {
+      "celltype": "X_ODDR2",
+      "clock": "C1",
+      "data": "D1",
+      "hold_ps": 0.0,
+      "setup_ps": 1110.0
+    },
+    {
+      "celltype": "X_ODDR2",
+      "clock": "C0",
+      "data": "R",
+      "hold_ps": 0.0,
+      "setup_ps": 954.0
+    },
+    {
+      "celltype": "X_ODDR2",
+      "clock": "C1",
+      "data": "R",
+      "hold_ps": 0.0,
+      "setup_ps": 954.0
+    },
+    {
       "celltype": "X_RAMB16BWER",
       "clock": "CLKA",
       "data": "ADDRA[0]",
@@ -48031,10 +48073,10 @@
   "cell_delays": [
     {
       "celltype": "X_BUF",
-      "delay_ps": 7969.0,
+      "delay_ps": 6869.0,
       "from": "I",
       "min_ps": 0.0,
-      "samples": 266840,
+      "samples": 269209,
       "to": "O"
     },
     {
@@ -48042,7 +48084,7 @@
       "delay_ps": 190.0,
       "from": "I",
       "min_ps": 190.0,
-      "samples": 3,
+      "samples": 5,
       "to": "DIVCLK"
     },
     {
@@ -48050,7 +48092,7 @@
       "delay_ps": 314.0,
       "from": "I",
       "min_ps": 314.0,
-      "samples": 3,
+      "samples": 5,
       "to": "IOCLK"
     },
     {
@@ -48058,15 +48100,23 @@
       "delay_ps": 1035.0,
       "from": "I",
       "min_ps": 1035.0,
-      "samples": 3,
+      "samples": 5,
       "to": "SERDESSTROBE"
+    },
+    {
+      "celltype": "X_BUFIO2FB",
+      "delay_ps": 111.0,
+      "from": "I",
+      "min_ps": 111.0,
+      "samples": 1,
+      "to": "O"
     },
     {
       "celltype": "X_CARRY4",
       "delay_ps": 156.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48074,7 +48124,7 @@
       "delay_ps": 194.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48082,7 +48132,7 @@
       "delay_ps": 212.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48090,7 +48140,7 @@
       "delay_ps": 93.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48098,7 +48148,7 @@
       "delay_ps": 128.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48106,7 +48156,7 @@
       "delay_ps": 218.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48114,7 +48164,7 @@
       "delay_ps": 205.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48122,7 +48172,7 @@
       "delay_ps": 228.0,
       "from": "CI",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48130,7 +48180,7 @@
       "delay_ps": 225.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48138,7 +48188,7 @@
       "delay_ps": 315.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48146,7 +48196,7 @@
       "delay_ps": 326.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48154,7 +48204,7 @@
       "delay_ps": 259.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48162,7 +48212,7 @@
       "delay_ps": 210.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48170,7 +48220,7 @@
       "delay_ps": 319.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48178,7 +48228,7 @@
       "delay_ps": 322.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48186,7 +48236,7 @@
       "delay_ps": 408.0,
       "from": "CYINIT",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48194,7 +48244,7 @@
       "delay_ps": 122.0,
       "from": "DI[0]",
       "min_ps": 107.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48202,7 +48252,7 @@
       "delay_ps": 232.0,
       "from": "DI[0]",
       "min_ps": 231.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48210,7 +48260,7 @@
       "delay_ps": 319.0,
       "from": "DI[0]",
       "min_ps": 270.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48218,7 +48268,7 @@
       "delay_ps": 241.0,
       "from": "DI[0]",
       "min_ps": 227.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48226,7 +48276,7 @@
       "delay_ps": 0.0,
       "from": "DI[0]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48234,7 +48284,7 @@
       "delay_ps": 186.0,
       "from": "DI[0]",
       "min_ps": 179.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48242,7 +48292,7 @@
       "delay_ps": 286.0,
       "from": "DI[0]",
       "min_ps": 278.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48250,7 +48300,7 @@
       "delay_ps": 331.0,
       "from": "DI[0]",
       "min_ps": 325.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48258,7 +48308,7 @@
       "delay_ps": 0.0,
       "from": "DI[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48266,7 +48316,7 @@
       "delay_ps": 181.0,
       "from": "DI[1]",
       "min_ps": 170.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48274,7 +48324,7 @@
       "delay_ps": 259.0,
       "from": "DI[1]",
       "min_ps": 239.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48282,7 +48332,7 @@
       "delay_ps": 168.0,
       "from": "DI[1]",
       "min_ps": 125.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48290,7 +48340,7 @@
       "delay_ps": 0.0,
       "from": "DI[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48298,7 +48348,7 @@
       "delay_ps": 0.0,
       "from": "DI[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48306,7 +48356,7 @@
       "delay_ps": 253.0,
       "from": "DI[1]",
       "min_ps": 227.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48314,7 +48364,7 @@
       "delay_ps": 280.0,
       "from": "DI[1]",
       "min_ps": 255.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48322,7 +48372,7 @@
       "delay_ps": 0.0,
       "from": "DI[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48330,7 +48380,7 @@
       "delay_ps": 0.0,
       "from": "DI[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48338,7 +48388,7 @@
       "delay_ps": 145.0,
       "from": "DI[2]",
       "min_ps": 144.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48346,7 +48396,7 @@
       "delay_ps": 109.0,
       "from": "DI[2]",
       "min_ps": 83.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48354,7 +48404,7 @@
       "delay_ps": 0.0,
       "from": "DI[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48362,7 +48412,7 @@
       "delay_ps": 0.0,
       "from": "DI[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48370,7 +48420,7 @@
       "delay_ps": 0.0,
       "from": "DI[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48378,7 +48428,7 @@
       "delay_ps": 207.0,
       "from": "DI[2]",
       "min_ps": 172.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48386,7 +48436,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48394,7 +48444,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48402,7 +48452,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48410,7 +48460,7 @@
       "delay_ps": 23.0,
       "from": "DI[3]",
       "min_ps": 15.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48418,7 +48468,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48426,7 +48476,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48434,7 +48484,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48442,7 +48492,7 @@
       "delay_ps": 0.0,
       "from": "DI[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48450,7 +48500,7 @@
       "delay_ps": 137.0,
       "from": "S[0]",
       "min_ps": 125.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48458,7 +48508,7 @@
       "delay_ps": 246.0,
       "from": "S[0]",
       "min_ps": 244.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48466,7 +48516,7 @@
       "delay_ps": 307.0,
       "from": "S[0]",
       "min_ps": 284.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48474,7 +48524,7 @@
       "delay_ps": 237.0,
       "from": "S[0]",
       "min_ps": 220.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48482,7 +48532,7 @@
       "delay_ps": 130.0,
       "from": "S[0]",
       "min_ps": 110.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48490,7 +48540,7 @@
       "delay_ps": 200.0,
       "from": "S[0]",
       "min_ps": 186.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48498,7 +48548,7 @@
       "delay_ps": 317.0,
       "from": "S[0]",
       "min_ps": 287.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48506,7 +48556,7 @@
       "delay_ps": 348.0,
       "from": "S[0]",
       "min_ps": 321.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48514,7 +48564,7 @@
       "delay_ps": 0.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48522,7 +48572,7 @@
       "delay_ps": 215.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48530,7 +48580,7 @@
       "delay_ps": 294.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48538,7 +48588,7 @@
       "delay_ps": 229.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48546,7 +48596,7 @@
       "delay_ps": 0.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48554,7 +48604,7 @@
       "delay_ps": 118.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48562,7 +48612,7 @@
       "delay_ps": 304.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48570,7 +48620,7 @@
       "delay_ps": 349.0,
       "from": "S[1]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48578,7 +48628,7 @@
       "delay_ps": 0.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48586,7 +48636,7 @@
       "delay_ps": 0.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48594,7 +48644,7 @@
       "delay_ps": 122.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48602,7 +48652,7 @@
       "delay_ps": 90.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48610,7 +48660,7 @@
       "delay_ps": 0.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48618,7 +48668,7 @@
       "delay_ps": 0.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48626,7 +48676,7 @@
       "delay_ps": 150.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48634,7 +48684,7 @@
       "delay_ps": 190.0,
       "from": "S[2]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48642,7 +48692,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[0]"
     },
     {
@@ -48650,7 +48700,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[1]"
     },
     {
@@ -48658,7 +48708,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[2]"
     },
     {
@@ -48666,7 +48716,7 @@
       "delay_ps": 58.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "CO[3]"
     },
     {
@@ -48674,7 +48724,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[0]"
     },
     {
@@ -48682,7 +48732,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[1]"
     },
     {
@@ -48690,7 +48740,7 @@
       "delay_ps": 0.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[2]"
     },
     {
@@ -48698,7 +48748,7 @@
       "delay_ps": 127.0,
       "from": "S[3]",
       "min_ps": 0.0,
-      "samples": 214,
+      "samples": 352,
       "to": "O[3]"
     },
     {
@@ -48706,7 +48756,7 @@
       "delay_ps": 209.0,
       "from": "I",
       "min_ps": 209.0,
-      "samples": 74,
+      "samples": 85,
       "to": "O"
     },
     {
@@ -48714,7 +48764,7 @@
       "delay_ps": 50.0,
       "from": "CLKIN",
       "min_ps": 50.0,
-      "samples": 1,
+      "samples": 2,
       "to": "LOCKED"
     },
     {
@@ -82850,7 +82900,7 @@
       "delay_ps": 0.0,
       "from": "I",
       "min_ps": 0.0,
-      "samples": 2,
+      "samples": 4,
       "to": "O"
     },
     {
@@ -82858,7 +82908,7 @@
       "delay_ps": 234.0,
       "from": "ADR0",
       "min_ps": 0.0,
-      "samples": 4361,
+      "samples": 4959,
       "to": "O"
     },
     {
@@ -82866,7 +82916,7 @@
       "delay_ps": 234.0,
       "from": "ADR1",
       "min_ps": 0.0,
-      "samples": 46055,
+      "samples": 46587,
       "to": "O"
     },
     {
@@ -82874,7 +82924,7 @@
       "delay_ps": 234.0,
       "from": "ADR2",
       "min_ps": 0.0,
-      "samples": 49452,
+      "samples": 49984,
       "to": "O"
     },
     {
@@ -82882,7 +82932,7 @@
       "delay_ps": 234.0,
       "from": "ADR3",
       "min_ps": 0.0,
-      "samples": 3635,
+      "samples": 4165,
       "to": "O"
     },
     {
@@ -82890,7 +82940,7 @@
       "delay_ps": 234.0,
       "from": "ADR4",
       "min_ps": 0.0,
-      "samples": 701,
+      "samples": 1216,
       "to": "O"
     },
     {
@@ -82898,7 +82948,7 @@
       "delay_ps": 259.0,
       "from": "ADR0",
       "min_ps": 0.0,
-      "samples": 65403,
+      "samples": 66384,
       "to": "O"
     },
     {
@@ -82906,7 +82956,7 @@
       "delay_ps": 259.0,
       "from": "ADR1",
       "min_ps": 0.0,
-      "samples": 64710,
+      "samples": 65171,
       "to": "O"
     },
     {
@@ -82914,7 +82964,7 @@
       "delay_ps": 259.0,
       "from": "ADR2",
       "min_ps": 0.0,
-      "samples": 17900,
+      "samples": 18308,
       "to": "O"
     },
     {
@@ -82922,7 +82972,7 @@
       "delay_ps": 259.0,
       "from": "ADR3",
       "min_ps": 0.0,
-      "samples": 14878,
+      "samples": 15256,
       "to": "O"
     },
     {
@@ -82930,7 +82980,7 @@
       "delay_ps": 259.0,
       "from": "ADR4",
       "min_ps": 0.0,
-      "samples": 8470,
+      "samples": 8821,
       "to": "O"
     },
     {
@@ -82938,7 +82988,7 @@
       "delay_ps": 259.0,
       "from": "ADR5",
       "min_ps": 0.0,
-      "samples": 51492,
+      "samples": 52179,
       "to": "O"
     },
     {
@@ -82970,7 +83020,7 @@
       "delay_ps": 2912.0,
       "from": "I",
       "min_ps": 2912.0,
-      "samples": 147,
+      "samples": 175,
       "to": "O"
     },
     {
@@ -82990,11 +83040,27 @@
       "to": "O"
     },
     {
+      "celltype": "X_ODDR2",
+      "delay_ps": 1008.0,
+      "from": "C0",
+      "min_ps": 1008.0,
+      "samples": 1,
+      "to": "Q"
+    },
+    {
+      "celltype": "X_ODDR2",
+      "delay_ps": 1008.0,
+      "from": "C1",
+      "min_ps": 1008.0,
+      "samples": 1,
+      "to": "Q"
+    },
+    {
       "celltype": "X_PLL_ADV",
       "delay_ps": 1300.0,
       "from": "CLKIN1",
       "min_ps": 1300.0,
-      "samples": 2,
+      "samples": 3,
       "to": "LOCKED"
     },
     {
@@ -83810,7 +83876,7 @@
       "delay_ps": 332.0,
       "from": "CLK",
       "min_ps": 332.0,
-      "samples": 100125,
+      "samples": 101103,
       "to": "O"
     },
     {
@@ -83919,234 +83985,354 @@
     }
   ],
   "fit": {
-    "connections": 46720,
-    "mean_delay_ps": 1417.064897260274,
-    "rms_error_ps": 162.36533583545898
+    "connections": 52639,
+    "mean_delay_ps": 1378.5412336860502,
+    "rms_error_ps": 158.4909532714274
   },
   "pip_classes": {
-    "CMT_OUT": {
+    "CMT_OUT@IOI": {
       "delay_ps": 0.0,
-      "samples": 34
+      "samples": 62
     },
     "DBL_EE": {
-      "delay_ps": 446.0,
-      "samples": 4856
+      "delay_ps": 419.5,
+      "samples": 4522
+    },
+    "DBL_EE@IOI": {
+      "delay_ps": 371.9,
+      "samples": 190
     },
     "DBL_NE": {
-      "delay_ps": 288.0,
-      "samples": 6231
+      "delay_ps": 284.0,
+      "samples": 5762
+    },
+    "DBL_NE@IOI": {
+      "delay_ps": 345.4,
+      "samples": 125
     },
     "DBL_NN": {
-      "delay_ps": 244.8,
-      "samples": 5605
+      "delay_ps": 291.0,
+      "samples": 5789
+    },
+    "DBL_NN@IOI": {
+      "delay_ps": 287.3,
+      "samples": 124
     },
     "DBL_NW": {
-      "delay_ps": 287.5,
-      "samples": 4494
+      "delay_ps": 309.4,
+      "samples": 4838
+    },
+    "DBL_NW@IOI": {
+      "delay_ps": 296.0,
+      "samples": 58
     },
     "DBL_SE": {
-      "delay_ps": 332.2,
-      "samples": 5256
+      "delay_ps": 340.4,
+      "samples": 5850
+    },
+    "DBL_SE@IOI": {
+      "delay_ps": 370.2,
+      "samples": 115
     },
     "DBL_SS": {
-      "delay_ps": 244.8,
-      "samples": 4796
+      "delay_ps": 238.6,
+      "samples": 5560
+    },
+    "DBL_SS@IOI": {
+      "delay_ps": 221.9,
+      "samples": 79
     },
     "DBL_SW": {
-      "delay_ps": 294.3,
-      "samples": 4624
+      "delay_ps": 309.4,
+      "samples": 4791
+    },
+    "DBL_SW@IOI": {
+      "delay_ps": 363.5,
+      "samples": 93
     },
     "DBL_WW": {
-      "delay_ps": 351.0,
-      "samples": 4742
+      "delay_ps": 358.8,
+      "samples": 4992
+    },
+    "DBL_WW@IOI": {
+      "delay_ps": 284.0,
+      "samples": 246
     },
     "HCLK": {
-      "delay_ps": 0.0,
-      "samples": 7859
+      "delay_ps": 0.6,
+      "samples": 8096
     },
-    "HCLK_ROW": {
-      "delay_ps": 467.8,
-      "samples": 7859
+    "HCLK@IOI": {
+      "delay_ps": 0.0,
+      "samples": 769
+    },
+    "HCLK_ROW@IOI": {
+      "delay_ps": 478.7,
+      "samples": 8865
     },
     "IMUX_CLK": {
-      "delay_ps": 1050.8,
-      "samples": 7825
+      "delay_ps": 1040.2,
+      "samples": 8803
     },
     "IMUX_GFAN": {
-      "delay_ps": 150.6,
-      "samples": 1761
-    },
-    "IMUX_GFAN@INTF": {
-      "delay_ps": 397.6,
-      "samples": 2
+      "delay_ps": 151.1,
+      "samples": 1991
     },
     "IMUX_LOGICIN": {
-      "delay_ps": 331.4,
-      "samples": 37849
+      "delay_ps": 332.5,
+      "samples": 42395
     },
     "IMUX_LOGICIN20_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 665
+      "samples": 759
     },
     "IMUX_LOGICIN20_BOUNCE@INTF": {
-      "delay_ps": 565.1,
-      "samples": 2
+      "delay_ps": 410.9,
+      "samples": 6
+    },
+    "IMUX_LOGICIN20_BOUNCE@IOI": {
+      "delay_ps": 295.5,
+      "samples": 4
     },
     "IMUX_LOGICIN21_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 334
+      "samples": 383
     },
     "IMUX_LOGICIN21_BOUNCE@INTF": {
-      "delay_ps": 234.7,
-      "samples": 7
+      "delay_ps": 206.6,
+      "samples": 15
+    },
+    "IMUX_LOGICIN21_BOUNCE@IOI": {
+      "delay_ps": 167.0,
+      "samples": 11
     },
     "IMUX_LOGICIN28_BOUNCE": {
-      "delay_ps": 27.1,
-      "samples": 433
+      "delay_ps": 12.5,
+      "samples": 443
     },
     "IMUX_LOGICIN28_BOUNCE@INTF": {
-      "delay_ps": 138.2,
-      "samples": 7
+      "delay_ps": 217.6,
+      "samples": 8
+    },
+    "IMUX_LOGICIN28_BOUNCE@IOI": {
+      "delay_ps": 103.0,
+      "samples": 25
     },
     "IMUX_LOGICIN36_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 1055
+      "samples": 1271
     },
     "IMUX_LOGICIN36_BOUNCE@INTF": {
-      "delay_ps": 362.3,
-      "samples": 6
+      "delay_ps": 266.1,
+      "samples": 4
+    },
+    "IMUX_LOGICIN36_BOUNCE@IOI": {
+      "delay_ps": 61.3,
+      "samples": 8
     },
     "IMUX_LOGICIN44_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 881
+      "samples": 1000
     },
     "IMUX_LOGICIN44_BOUNCE@INTF": {
-      "delay_ps": 360.3,
-      "samples": 4
+      "delay_ps": 359.2,
+      "samples": 2
+    },
+    "IMUX_LOGICIN44_BOUNCE@IOI": {
+      "delay_ps": 143.1,
+      "samples": 8
     },
     "IMUX_LOGICIN52_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 365
+      "samples": 370
     },
     "IMUX_LOGICIN52_BOUNCE@INTF": {
-      "delay_ps": 493.5,
-      "samples": 2
+      "delay_ps": 263.8,
+      "samples": 4
+    },
+    "IMUX_LOGICIN52_BOUNCE@IOI": {
+      "delay_ps": 165.1,
+      "samples": 11
     },
     "IMUX_LOGICIN60_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 457
+      "samples": 475
     },
     "IMUX_LOGICIN60_BOUNCE@INTF": {
-      "delay_ps": 0.0,
-      "samples": 8
+      "delay_ps": 122.7,
+      "samples": 16
+    },
+    "IMUX_LOGICIN60_BOUNCE@IOI": {
+      "delay_ps": 73.6,
+      "samples": 27
     },
     "IMUX_LOGICIN62_BOUNCE": {
       "delay_ps": 0.0,
-      "samples": 967
+      "samples": 1104
     },
     "IMUX_LOGICIN62_BOUNCE@INTF": {
-      "delay_ps": 555.8,
+      "delay_ps": 354.8,
       "samples": 4
     },
+    "IMUX_LOGICIN62_BOUNCE@IOI": {
+      "delay_ps": 84.9,
+      "samples": 9
+    },
     "IMUX_LOGICIN@INTF": {
-      "delay_ps": 60.5,
-      "samples": 210
+      "delay_ps": 103.0,
+      "samples": 211
+    },
+    "IMUX_LOGICIN@IOI": {
+      "delay_ps": 233.5,
+      "samples": 141
     },
     "IMUX_SR": {
-      "delay_ps": 385.9,
-      "samples": 681
+      "delay_ps": 389.1,
+      "samples": 1196
     },
     "OUT": {
-      "delay_ps": 519.1,
-      "samples": 303
+      "delay_ps": 249.6,
+      "samples": 228
     },
-    "OUT_BEL": {
+    "OUT@IOI": {
+      "delay_ps": 1500.6,
+      "samples": 88
+    },
+    "OUT_BEL@IOI": {
       "delay_ps": 0.0,
-      "samples": 2
+      "samples": 3
     },
     "QUAD_EE": {
-      "delay_ps": 409.4,
-      "samples": 1589
+      "delay_ps": 390.9,
+      "samples": 1434
+    },
+    "QUAD_EE@IOI": {
+      "delay_ps": 389.1,
+      "samples": 25
     },
     "QUAD_NE": {
-      "delay_ps": 343.7,
-      "samples": 1971
+      "delay_ps": 363.3,
+      "samples": 1995
+    },
+    "QUAD_NE@IOI": {
+      "delay_ps": 336.4,
+      "samples": 47
     },
     "QUAD_NN": {
-      "delay_ps": 308.4,
-      "samples": 2606
+      "delay_ps": 269.8,
+      "samples": 2417
+    },
+    "QUAD_NN@IOI": {
+      "delay_ps": 246.9,
+      "samples": 148
     },
     "QUAD_NW": {
-      "delay_ps": 313.0,
-      "samples": 1569
+      "delay_ps": 307.3,
+      "samples": 1513
+    },
+    "QUAD_NW@IOI": {
+      "delay_ps": 322.6,
+      "samples": 20
     },
     "QUAD_SE": {
-      "delay_ps": 340.1,
-      "samples": 1972
+      "delay_ps": 344.8,
+      "samples": 2100
+    },
+    "QUAD_SE@IOI": {
+      "delay_ps": 283.0,
+      "samples": 45
     },
     "QUAD_SS": {
-      "delay_ps": 291.4,
-      "samples": 3427
+      "delay_ps": 287.0,
+      "samples": 3447
+    },
+    "QUAD_SS@IOI": {
+      "delay_ps": 295.2,
+      "samples": 46
     },
     "QUAD_SW": {
-      "delay_ps": 356.4,
-      "samples": 2541
+      "delay_ps": 320.7,
+      "samples": 2192
+    },
+    "QUAD_SW@IOI": {
+      "delay_ps": 203.1,
+      "samples": 51
     },
     "QUAD_WW": {
-      "delay_ps": 338.4,
-      "samples": 1499
+      "delay_ps": 335.8,
+      "samples": 1676
+    },
+    "QUAD_WW@IOI": {
+      "delay_ps": 297.8,
+      "samples": 16
     },
     "SITE:AOUT": {
       "delay_ps": 0.0,
-      "samples": 3534
+      "samples": 3821
     },
     "SITE:BOUT": {
-      "delay_ps": 10.3,
-      "samples": 3123
+      "delay_ps": 0.0,
+      "samples": 3320
     },
     "SITE:COUT": {
-      "delay_ps": 17.2,
-      "samples": 2175
+      "delay_ps": 8.1,
+      "samples": 2330
     },
     "SITE:DOUT": {
-      "delay_ps": 0.3,
-      "samples": 1798
+      "delay_ps": 0.0,
+      "samples": 1922
     },
     "SITE:FFA": {
       "delay_ps": 0.0,
-      "samples": 1171
+      "samples": 1415
     },
     "SITE:FFB": {
       "delay_ps": 0.0,
-      "samples": 1235
+      "samples": 1482
     },
     "SITE:FFC": {
       "delay_ps": 0.0,
-      "samples": 1181
+      "samples": 1414
     },
     "SITE:FFD": {
       "delay_ps": 0.0,
-      "samples": 1227
+      "samples": 1454
     },
     "SNG_E": {
-      "delay_ps": 270.1,
-      "samples": 9703
+      "delay_ps": 269.4,
+      "samples": 11289
+    },
+    "SNG_E@IOI": {
+      "delay_ps": 316.2,
+      "samples": 502
     },
     "SNG_N": {
-      "delay_ps": 241.6,
-      "samples": 12644
+      "delay_ps": 225.1,
+      "samples": 13258
+    },
+    "SNG_N@IOI": {
+      "delay_ps": 251.7,
+      "samples": 362
     },
     "SNG_S": {
-      "delay_ps": 223.9,
-      "samples": 11036
+      "delay_ps": 224.8,
+      "samples": 12978
+    },
+    "SNG_S@IOI": {
+      "delay_ps": 250.8,
+      "samples": 189
     },
     "SNG_W": {
-      "delay_ps": 261.8,
-      "samples": 11482
+      "delay_ps": 272.3,
+      "samples": 12037
+    },
+    "SNG_W@IOI": {
+      "delay_ps": 229.6,
+      "samples": 334
     },
     "~FANOUT": {
       "delay_ps": 0.0,
-      "samples": 40198
+      "samples": 45198
     }
   },
   "source": "ISE 14.7 netgen SDF, xc6slx9-2, 85C 1.14V (max delays)"

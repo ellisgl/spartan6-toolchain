@@ -248,24 +248,36 @@ the same registers. ISE's 59 ps cascade wire delay isn't modelled.
 The characterization designs give cell timing only (`--cells-only`):
 their long shift registers would skew the routing fit.
 
-Fit: 46,080 connections from 10 designs, 164 ps rms error (mean connection
-delay 1.42 ns). Against ISE's own analyser (`trce`) on the same placement
-and routing (`tools/timing-compare.py`):
+Fit: 52,639 connections from 13 designs, 158 ps rms error (mean connection
+delay 1.38 ns). Routing in the I/O tiles' interconnect (INT_IOI: the die's
+outer rows and columns) is fitted separately (`<class>@IOI`): it is slower
+than the fabric's, and the pad-to-fabric input (`OUT@IOI`) alone is about
+1.5 ns. Against ISE's own analyser (`trce`) on the same placement and
+routing (`tools/timing-compare.py`; half-cycle paths count double, as both
+tools do):
 
 | Design | nextpnr | ISE trce | Error |
 |---|---|---|---|
-| bram | 9.34 ns | 9.29 ns | +0.6% |
-| fill | 10.07 ns | 9.98 ns | +1.0% |
-| rom | 6.51 ns | 6.67 ns | -2.5% |
-| speed | 10.33 ns | 9.82 ns | +5.2% |
-| alu (DSPs) | 14.73 ns | 13.95 ns | +5.7% |
-| uart_echo | 7.19 ns | 7.63 ns | -5.8% |
-| lutram | 7.06 ns | 7.65 ns | -7.6% |
-| dsp | 8.55 ns | 7.91 ns | +8.0% |
-| clocks | 7.67 ns | 8.38 ns | -8.6% |
+| lutram | 9.45 ns | 9.27 ns | +1.9% |
+| srlq31 | 7.57 ns | 7.40 ns | +2.3% |
+| dspcasc | 7.42 ns | 7.60 ns | -2.3% |
+| tristate | 7.82 ns | 7.64 ns | +2.4% |
+| bram | 9.06 ns | 8.83 ns | +2.5% |
+| alu (DSPs) | 14.17 ns | 13.70 ns | +3.4% |
+| speed | 9.83 ns | 9.44 ns | +4.1% |
+| pll2 | 7.26 ns | 7.60 ns | -4.5% |
+| clocks | 8.47 ns | 8.94 ns | -5.3% |
+| dll | 7.31 ns | 7.83 ns | -6.6% |
+| fill | 11.03 ns | 11.85 ns | -6.9% |
+| rom | 8.90 ns | 8.29 ns | +7.3% |
+| dsp | 7.70 ns | 8.35 ns | -7.7% |
+| uart_echo | 6.66 ns | 7.42 ns | -10.3% |
+| iddr2clk | 9.72 ns | 8.73 ns | +11.3% |
+| oddr (half-cycle path) | 9.43 ns | 11.06 ns | -14.8% |
 
 What's left is mostly the routing model: per connection it's off by
-~160 ps rms, and a long or high-fanout route (dsp's critical path is LUTs
+~160 ps rms (one delay per wire class can't follow ISE's per-wire, per-load
+detail), and a long or high-fanout route (dsp's critical path is LUTs
 with one 4.4 ns net) carries most of a path's error.
 
 LUT inputs a table doesn't depend on get no timing arc (the uarch overrides
@@ -642,8 +654,10 @@ Packer limits for now:
 - **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
   but not yet in the `.bba`. They need a uarch `extra_data` struct.
 - **Pad functions.** GCLK and other pad functions are empty.
-- **Timing coverage:** I/O, DCM/PLL and the clock spines use a typical
-  routing delay; the delay model was measured for -2 only (the other speed
+- **Timing coverage:** the clock network's own wiring (BUFIO2/BUFPLL, the
+  DCM/PLL clock inputs and outputs, the I/O clock lines: 38 classes, which
+  `s6-chipdb` lists) uses a typical 250 ps per hop; it only matters across
+  clock domains. The delay model was measured for -2 only (the other speed
   grades get the same numbers).
 - **PLL CLKINSEL from logic** (see the uarch section) and the GTP, PCIe and
   memory controller blocks.
