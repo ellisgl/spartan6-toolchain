@@ -656,9 +656,13 @@ Packer limits for now:
 
 ## Not done yet
 
-- **Uarch-specific data.** `carry_prev` and the pips' `src_ref` are in the JSON
-  but not yet in the `.bba`. They need a uarch `extra_data` struct.
-- **Pad functions.** GCLK and other pad functions are empty.
+(Not needed in the chip database: `carry_prev` and the pips' `src_ref` stay
+in the JSON only. The uarch follows carry chains through the routing graph
+(CO3 -> CIN), and the bitstream and XDL writers read `src_ref` from the
+JSON. Pads carry their bank and a function, `IO[_GCLK][_VREF]_<bank>`: GCLK
+for the clock-capable ones, as found in the routing graph (all 28 of the
+TQG144's, as ISE lists them), VREF for the package's VREF pins.)
+
 - **Timing coverage:** the clock network's own wiring (BUFIO2/BUFPLL, the
   DCM/PLL clock inputs and outputs, the I/O clock lines: 38 classes, which
   `s6-chipdb` lists) uses a typical 250 ps per hop; it only matters across

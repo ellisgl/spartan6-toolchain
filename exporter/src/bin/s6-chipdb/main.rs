@@ -117,6 +117,8 @@ struct IoJ {
     y: usize,
     bel: String,
     bank: u32,
+    #[serde(default)]
+    vref: bool,
 }
 
 fn base(name: &str) -> &str {
@@ -214,11 +216,24 @@ fn main() {
     for node in &dev.nodes {
         ch.add_node(node);
     }
+    // Pad functions, as "IO[_GCLK][_VREF]_<bank>": GCLK when the pad's
+    // dedicated clock output reaches a BUFGMUX (as the packer decides),
+    // VREF for the package's VREF pins.
+    let gclk = clock_capable_pads(&dev);
+    println!("{}: {} clock-capable IOBs", dev.device, gclk.len());
     for pj in &dev.packages {
         let pkg = ch.create_package(&pj.name.to_uppercase());
         for pin in &pj.pins {
             if let Some(io) = &pin.io {
-                ch.create_pad(pkg, &pin.pin, &format!("X{}Y{}", io.x, io.y), &io.bel, "", io.bank);
+                let mut function = "IO".to_string();
+                if gclk.contains(&(io.x, io.y, io.bel.clone())) {
+                    function += "_GCLK";
+                }
+                if io.vref {
+                    function += "_VREF";
+                }
+                function += &format!("_{}", io.bank);
+                ch.create_pad(pkg, &pin.pin, &format!("X{}Y{}", io.x, io.y), &io.bel, &function, io.bank);
             }
         }
     }
@@ -238,4 +253,65 @@ fn main() {
         dev.nodes.len(),
         args.bba.display()
     );
+}
+
+/// IOBs whose GCLK_I (the dedicated clock path) reaches a BUFGMUX input
+/// within a few hops: the clock-capable pads.
+fn clock_capable_pads(dev: &Dev) -> std::collections::HashSet<(usize, usize, String)> {
+    use std::collections::{HashMap, HashSet};
+    type W = (usize, usize, usize);
+    let mut canon: HashMap<W, W> = HashMap::new();
+    for n in &dev.nodes {
+        let root = (n[0][0], n[0][1], n[0][2]);
+        for &[x, y, w] in n {
+            canon.insert((x, y, w), root);
+        }
+    }
+    let c = |w: W| *canon.get(&w).unwrap_or(&w);
+    let mut fwd: HashMap<W, Vec<W>> = HashMap::new();
+    let mut members: HashMap<W, Vec<W>> = HashMap::new();
+    let mut bufg_in: HashSet<W> = HashSet::new();
+    let mut gclk_pins: Vec<(W, (usize, usize, String))> = vec![];
+    for t in &dev.tiles {
+        let tt = &dev.tile_types[t.typ];
+        for p in &tt.pips {
+            fwd.entry((t.x, t.y, p.src)).or_default().push(c((t.x, t.y, p.dst)));
+        }
+        for w in 0..tt.wires.len() {
+            members.entry(c((t.x, t.y, w))).or_default().push((t.x, t.y, w));
+        }
+        for b in &tt.bels {
+            for p in &b.pins {
+                if b.typ == "BUFGMUX" && (p.name == "I0" || p.name == "I1") {
+                    bufg_in.insert(c((t.x, t.y, p.wire)));
+                }
+                if b.typ == "IOB" && p.name == "GCLK_I" {
+                    gclk_pins.push((c((t.x, t.y, p.wire)), (t.x, t.y, b.name.clone())));
+                }
+            }
+        }
+    }
+    let mut out = HashSet::new();
+    for (start, iob) in gclk_pins {
+        let mut seen = HashSet::from([start]);
+        let mut frontier = vec![start];
+        'search: for _ in 0..10 {
+            let mut next = vec![];
+            for n in &frontier {
+                if bufg_in.contains(n) {
+                    out.insert(iob.clone());
+                    break 'search;
+                }
+                for m in members.get(n).into_iter().flatten() {
+                    for &d in fwd.get(m).into_iter().flatten() {
+                        if seen.insert(d) {
+                            next.push(d);
+                        }
+                    }
+                }
+            }
+            frontier = next;
+        }
+    }
+    out
 }

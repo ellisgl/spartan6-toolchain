@@ -144,6 +144,9 @@ struct OutIo {
     y: usize,
     bel: String,
     bank: u32,
+    /// One of the package's VREF pins (used as such when its bank has a
+    /// VREF-standard input).
+    vref: bool,
 }
 
 #[derive(Serialize)]
@@ -647,6 +650,7 @@ fn main() {
                     y: tcrd.cell.row.to_idx(),
                     bel: int.bel_slots[pad.slot].name.clone(),
                     bank: chip.get_io_bank(*pad),
+                    vref: bond.vref.contains(pad),
                 });
             }
             pins.push(OutPad {
