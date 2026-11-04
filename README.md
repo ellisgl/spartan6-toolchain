@@ -154,6 +154,7 @@ talks to the Mojo over its USB serial port):
 | `psvar` | `tools/psvar-test.py` | DCM variable phase shift (PSEN / PSINCDEC / PSDONE), 1600 steps |
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
+| `pllsel2` | `tools/pll2-test.py` | as `pll2` on a PLL_ADV, clock on CLKIN2 with CLKINSEL = 0 (DRP tied off) |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
 `fill` (no script) is a capacity test that only fits with LUT pairing and
@@ -552,7 +553,10 @@ primary source is kept, as an always-on pip) and factory-test wires
 - **Clock management (`cmt.cc`):** DCM_SP fed from the pad through an inserted
   BUFIO2 (as ISE's map does); PLL_BASE/PLL_ADV likewise from a clock pad,
   on CLKIN1 or CLKIN2 (whichever the BUFIO2 reaches), else from a BUFG on
-  CLKIN2. (Fed from the fabric BUFG, the PLL missed LOCKED at some
+  CLKIN2. A constant CLKINSEL only picks which PLL_ADV input carries the
+  clock (0: CLKIN2); that one is kept and placed as above, the other
+  dropped. A tied-off DRP (constant DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused)
+  and the reserved REL pin are dropped too. (Fed from the fabric BUFG, the PLL missed LOCKED at some
   multipliers, e.g. x9 and x10, though its outputs were right.) COMPENSATION
   = SYSTEM/SOURCE_SYNCHRONOUS (PLL_BASE's default) with CLKFBOUT wired
   straight to CLKFBIN becomes INTERNAL, as ISE's map does; with the feedback
@@ -618,9 +622,10 @@ Packer limits for now:
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
-- **Not supported yet (packer errors out):** PLL CLKINSEL driven dynamically.
-  ISE requires both inputs from LOC-constrained BUFIO2s (two clock pins)
-  that reach the PLL's site; the Mojo V3 has one clock source.
+- **Not supported yet (packer errors out):** PLL CLKINSEL driven from logic
+  (ISE requires both inputs from LOC-constrained BUFIO2s, two clock pins
+  that reach the PLL's site; the Mojo V3 has one clock source), the PLL's
+  DRP used from logic, and REL driven.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
   OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9's

@@ -140,12 +140,53 @@ void Spartan6Impl::pack_cmt()
                 ci->renamePort(id_CLKIN, id_CLKIN1);
             ci->params[id_PLL_PRIMITIVE] = ci->type.str(ctx);
             unbracket(ctx, ci);
-            // CLKINSEL is a static setting (CLKIN1) unless driven.
+            // A constant CLKINSEL only says which input carries the clock
+            // (1 or unconnected: CLKIN1, 0: CLKIN2). Keep that one, as
+            // CLKIN1; the other is never selected. Which physical input it
+            // ends up on is chosen below (CLKIN_SOURCE, the bitstream's
+            // CLKINSEL_STATIC_VAL), as for PLL_BASE.
             NetInfo *sel = ci->getPort(id_CLKINSEL);
-            if (sel && sel->constant_value != IdString()) {
-                if (sel->constant_value == id_GND)
-                    log_error("PLL %s: CLKINSEL = 0 (CLKIN2) is not supported yet\n", ctx->nameOf(ci));
-                drop_port(ci, id_CLKINSEL);
+            if (sel && sel->constant_value == IdString())
+                log_error("PLL %s: CLKINSEL driven from logic is not supported yet\n", ctx->nameOf(ci));
+            // PLL_ADV's dynamic reconfiguration port (DRP): tied off (constant
+            // DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused) it does nothing, so drop
+            // it; the XDL writer doesn't carry these pins. A used DRP isn't
+            // supported yet.
+            {
+                bool drp_used = false;
+                std::vector<IdString> drp;
+                for (auto &[name, port] : ci->ports) {
+                    std::string n = name.str(ctx);
+                    bool in = n == "DCLK" || n == "DEN" || n == "DWE" || n.rfind("DADDR", 0) == 0 ||
+                              (n.rfind("DI", 0) == 0 && n.size() > 2 && isdigit(n[2]));
+                    bool out = n == "DRDY" || (n.rfind("DO", 0) == 0 && n.size() > 2 && isdigit(n[2]));
+                    if (!in && !out)
+                        continue;
+                    drp.push_back(name);
+                    if (port.net && ((in && port.net->constant_value == IdString()) || (out && port.net->users.entries())))
+                        drp_used = true;
+                }
+                if (drp_used)
+                    log_error("PLL %s: the dynamic reconfiguration port (DCLK/DEN/DWE/DADDR/DI/DO/DRDY) is not "
+                              "supported yet\n",
+                              ctx->nameOf(ci));
+                for (IdString p : drp)
+                    drop_port(ci, p);
+            }
+            // PLL_ADV's reserved REL pin has no site pin.
+            if (NetInfo *rel = ci->getPort(ctx->id("REL"))) {
+                if (rel->constant_value == IdString())
+                    log_error("PLL %s: REL driven from logic is not supported (the site has no REL pin)\n",
+                              ctx->nameOf(ci));
+                drop_port(ci, ctx->id("REL"));
+            }
+            bool use2 = sel && sel->constant_value == id_GND;
+            drop_port(ci, id_CLKINSEL);
+            drop_port(ci, use2 ? id_CLKIN1 : id_CLKIN2);
+            if (use2) {
+                if (!ci->getPort(id_CLKIN2))
+                    log_error("PLL %s: CLKINSEL = 0 selects CLKIN2, which is not connected\n", ctx->nameOf(ci));
+                ci->renamePort(id_CLKIN2, id_CLKIN1);
             }
             // Compensation: with CLKFBOUT wired straight to CLKFBIN there is
             // nothing to compensate, and ISE's map switches the PLL to
