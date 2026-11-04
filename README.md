@@ -31,8 +31,9 @@ make load TEST=blinky         # onto a Mojo V3 over USB (FPGA RAM)
 ```
 
 Your own design: `tests/<name>/<name>.v` (top module `<name>`) with a
-`pins.ucf` (LOC, IOSTANDARD, DRIVE, SLEW, PULLUP/PULLDOWN; copy one from
-`tests/`), then `make bit TEST=<name>`. Another Spartan-6 part: add
+`pins.ucf` (LOC, IOSTANDARD, DRIVE, SLEW, PULLUP/PULLDOWN, and the clock
+period, e.g. `NET "clk" PERIOD = 50 MHz;`; copy one from `tests/`), then
+`make bit TEST=<name>`. Another Spartan-6 part: add
 `DEVICE=xc6slx16 PACKAGE=ftg256` (see Building and using).
 
 Prebuilt binaries: each [release](https://github.com/ellisgl/spartan6-toolchain/releases)
@@ -49,7 +50,7 @@ curl -fLO https://codeberg.org/prjunnamed/prjcombine/raw/commit/2b3317db3799b82b
 |---|---|
 | `nextpnr/` | nextpnr (git subtree of YosysHQ/nextpnr) with the Spartan-6 himbaechel uarch in `nextpnr/himbaechel/uarch/spartan6` (packing, placement rules, timing variants) |
 | `exporter/` | Rust tools over prjcombine's Spartan-6 database: `s6-export` (chip database JSON), `s6-chipdb` (nextpnr chip database `.bba` from the JSON, with the delay model), `s6-check` (sanity checks on the JSON), `s6-bitgen` (bitstream writer), `s6-xdl` (XDL writer for the ISE cross-check), `s6-timing` (delay model fit), `s6-load` (Mojo V3 loader) |
-| `data/` | the fitted delay model (`timing-xc6slx9-2.json`) |
+| `data/` | the fitted delay models (`timing-xc6slx9-2.json`, `timing-xc6slx9-3.json`) |
 | `tests/` | test designs (one directory each, with `pins.ucf`), `tests/common` (UART helpers) |
 | `tools/` | ISE wrappers, hardware test scripts (Python), timing comparison, test design generators |
 | `docs/` | the original plan and upstream issue drafts |
@@ -107,7 +108,8 @@ cascades and the pre-adder, DCM, PLL, tristate) are byte-identical to ISE on
 each. The LX parts share their die with the LXT, GTPs disabled; ISE still
 sets the GLUTMASK bits of the GTP columns' HCLK tiles, which prjcombine
 leaves out, so s6-bitgen sets them from the LXT layout. Nothing but the
-xc6slx9 has been on hardware, and timing everywhere is the xc6slx9-2 model.
+xc6slx9 has been on hardware, and every device is timed with the xc6slx9's
+delay model for its speed grade (same fabric).
 GTP transceivers, PCIe and the memory controller (MCB) aren't supported.
 
 **DSP inference.** yosys packs multipliers, multiply-accumulate, P cascades
@@ -199,7 +201,9 @@ build/target/release/s6-load --flash build/cylon-ise/cylon.bin    # flash, verif
 ```
 
 `s6-load` (also `make load TEST=...`) speaks the official loader's serial protocol to the Mojo's
-AVR (`/dev/ttyACM0`; needs membership of `dialout`).
+AVR (`/dev/ttyACM0`, or `--port`; needs membership of `dialout`). With
+`--flash` it writes the flash, reads it back to verify (about as long as the
+upload: ~18 s for an LX9 bitstream) and then configures the FPGA from it.
 
 openFPGALoader can do the same with the `mojov3` board from the
 [`mojo-v3`](https://github.com/ellisgl/openFPGALoader/tree/mojo-v3) branch of
@@ -229,7 +233,11 @@ setup/hold checks. The result, `data/timing-xc6slx9-2.json`, is committed;
 `s6-chipdb` puts it in the chip database: pip class delays, and cell
 timing for LUTs, FFs, CARRY4, wide muxes, RAM/SRL LUTs, BRAM, BUFGMUX and
 DSP48A1 (below). nextpnr then places and routes timing-driven and reports
-Fmax.
+Fmax against the clock periods from the UCF (`PERIOD`, or `TNM_NET` +
+`TIMESPEC`), carried through the clock buffers and derived for DCM/PLL
+outputs. A clock without a period is timed at nextpnr's default 12 MHz:
+the Mojo designs using `tests/mojo_v3.ucf` get the board's 50 MHz, those
+with their own `pins.ucf` (no period) the default.
 
 **DSP48A1.** Its timing depends on which pipeline registers are on and, when
 OPMODE is tied to a constant, on the mode (ISE drops the paths the mode
@@ -615,8 +623,8 @@ Packer limits for now:
   that reach the PLL's site; the Mojo V3 has one clock source.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
-  OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9-2
-  delay model.
+  OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9's
+  delay model for their speed grade.
 - **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as
   a DDR register, clocked through the I/O tile's IOI_DDR (prjcombine's DDR
   clocking). With C1 = ~C0 (the LUT inverter yosys makes) it takes C0 on
