@@ -241,8 +241,8 @@ Fmax against the clock periods from the UCF (`PERIOD`, or `TNM_NET` +
 outputs. A clock without a period is timed at nextpnr's default 12 MHz.
 The Mojo test designs all give the board's 50 MHz (`tests/mojo_v3.ucf` and
 each `pins.ucf`), except the DSP characterization designs (`dsp_char*`,
-`dsp_casc_char*`), which are deliberately slow paths and stay at the
-default.
+`dsp_casc_char*`, deliberately slow paths) and `speed` (its PLL clock is
+swept past the failing point), which stay at the default.
 
 **DSP48A1.** Its timing depends on which pipeline registers are on and, when
 OPMODE is tied to a constant, on the mode (ISE drops the paths the mode

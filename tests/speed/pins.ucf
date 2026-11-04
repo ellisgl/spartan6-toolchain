@@ -14,5 +14,6 @@ NET "led<5>" LOC = P126 | IOSTANDARD = LVTTL;
 NET "led<6>" LOC = P124 | IOSTANDARD = LVTTL;
 NET "led<7>" LOC = P123 | IOSTANDARD = LVTTL;
 
-# The 50 MHz board clock (the placer and timing report use it).
-NET "clk" PERIOD = 50 MHz;
+# No clock period: the PLL test clock (100 MHz as built) is rewritten for each
+# step of tools/speed-test.py's sweep, past the point the path fails, so a
+# constraint on it would only fail the build.
