@@ -95,6 +95,9 @@ struct Spartan6Impl : HimbaechelAPI
     void read_ucf(const std::string &filename);
     void set_clock(NetInfo *net, double period_ns, double high);
     void propagate_clock_constraints();
+    void name_clock_nets();
+    // IOB cell -> the top-level port it was packed from (pack_io).
+    dict<IdString, IdString> iob_port;
     void pack_io();
     void pack_clocking();
     void pack_logic();

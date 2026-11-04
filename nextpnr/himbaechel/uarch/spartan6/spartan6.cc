@@ -98,6 +98,7 @@ void Spartan6Impl::pack()
     pack_wide();
     pack_lut_pairs();
     pack_ff5_passthrough();
+    name_clock_nets();
     propagate_clock_constraints();
 }
 

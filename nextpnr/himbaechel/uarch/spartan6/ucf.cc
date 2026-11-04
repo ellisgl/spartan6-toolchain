@@ -324,4 +324,71 @@ void Spartan6Impl::propagate_clock_constraints()
     }
 }
 
+// Auto-named nets ($...) on clock paths get names from where they come from,
+// so timing reports say 'clk$bufg' rather than '$abc$...$aiger$o100':
+// <port>$ibuf after an input pad, <src>$bufg after a BUFG, <src>$bufio2
+// after a BUFIO2 / BUFIO2FB, <src>$<pin> on DCM and PLL outputs, where
+// <src> is the input net's name up to its first '$'. Named nets are kept.
+void Spartan6Impl::name_clock_nets()
+{
+    auto root = [&](const NetInfo *n) -> std::string {
+        if (!n)
+            return "";
+        std::string s = n->name.str(ctx);
+        return s.empty() || s[0] == '$' ? "" : s.substr(0, s.find('$'));
+    };
+    auto rename = [&](NetInfo *n, const std::string &base) {
+        if (!n || base.empty() || n->name.str(ctx)[0] != '$')
+            return;
+        std::string name = base;
+        for (int i = 1; ctx->nets.count(ctx->id(name)); i++)
+            name = stringf("%s%d", base.c_str(), i);
+        ctx->renameNet(n->name, ctx->id(name));
+    };
+    // Pads first: the buffers' names build on theirs.
+    for (auto &cell : ctx->cells) {
+        CellInfo *ci = cell.second.get();
+        if (ci->type != id_IOB || !iob_port.count(ci->name))
+            continue;
+        std::string port = iob_port.at(ci->name).str(ctx);
+        rename(ci->getPort(id_I), port + "$ibuf");
+        rename(ci->getPort(id_GCLK_I), port + "$ibuf");
+    }
+    // Buffers and clock managers, until nothing changes (chains of them).
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (auto &cell : ctx->cells) {
+            CellInfo *ci = cell.second.get();
+            std::vector<std::pair<IdString, std::string>> outs; // output port, suffix
+            std::string src;
+            if (ci->type == id_BUFGMUX) {
+                src = root(ci->getPort(id_I0));
+                if (src.empty())
+                    src = root(ci->getPort(id_I1));
+                outs = {{id_O, "$bufg"}};
+            } else if (ci->type.in(id_BUFIO2, id_BUFIO2FB)) {
+                src = root(ci->getPort(id_I));
+                for (IdString p : {id_DIVCLK, id_DIVCLK_CMT, ctx->id("IOCLK"), id_O})
+                    outs.emplace_back(p, "$bufio2");
+            } else if (ci->type.in(id_DCM, id_PLL)) {
+                for (IdString p : {id_CLKIN, id_CLKIN1, id_CLKIN2})
+                    if (src.empty())
+                        src = root(ci->getPort(p));
+                for (auto &[name, port] : ci->ports)
+                    if (port.type == PORT_OUT && name.str(ctx).rfind("CLK", 0) == 0)
+                        outs.emplace_back(name, "$" + name.str(ctx));
+            }
+            if (src.empty())
+                continue;
+            for (auto &[port, suffix] : outs) {
+                NetInfo *n = ci->getPort(port);
+                if (n && n->name.str(ctx)[0] == '$') {
+                    rename(n, src + suffix);
+                    changed = true;
+                }
+            }
+        }
+    }
+}
+
 NEXTPNR_NAMESPACE_END

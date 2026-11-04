@@ -119,6 +119,7 @@ void Spartan6Impl::pack_io()
                 ci->attrs[k] = v;
         IdString orig_type = ci->type;
         ci->params[ctx->id("IO_TYPE")] = orig_type.str(ctx);
+        iob_port[ci->name] = port_name;
 
         // A clock period given on the port moves to the pad's fabric-side net.
         if (pad_net->clkconstr && orig_type.in(id_IBUF, id_IBUFG, id_IOBUF)) {

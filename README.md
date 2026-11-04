@@ -495,8 +495,10 @@ primary source is kept, as an always-on pip) and factory-test wires
   `TNM_NET` with `TIMESPEC ... = PERIOD "<group>" ...`; times or frequencies,
   optional `HIGH`/`LOW` duty). Bus syntax `led<0>` maps to `led[0]`. Periods
   are carried through IOBs, BUFGs and BUFIO2s, and derived for DCM and PLL
-  outputs from their multiply/divide parameters; derived TIMESPECs
-  (`TS_clk * 2`), OFFSET and FROM/TO are ignored with a warning.
+  outputs from their multiply/divide parameters. Auto-named nets on the clock
+  path are renamed after their source, so timing reports name clocks
+  `clk$bufg`, `clk$bufio2`, `clk$CLKFX` (named nets are kept). Derived
+  TIMESPECs (`TS_clk * 2`), OFFSET and FROM/TO are ignored with a warning.
 - **Packer:** maps IBUF/IBUFG/OBUF/OBUFT/IOBUF to `IOB`, BUFG to `BUFGMUX`,
   LUT1–6 and INV to `SLICE_LUT`, and FDRE/FDSE/FDCE/FDPE to `SLICE_FF`.
   A pad that only feeds clock loads uses `GCLK_I`. The clock tree is placed
