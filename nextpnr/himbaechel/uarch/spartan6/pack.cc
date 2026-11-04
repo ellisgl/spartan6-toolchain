@@ -201,7 +201,15 @@ void Spartan6Impl::pack_clocking()
         // Clock loads (BUFGs, DCM/PLL clock inputs) use the dedicated
         // clock-pad path; with other loads too (e.g. a DCM's PSCLK, through
         // general routing), the pad drives both, as ISE routes it.
+        // BUFGs that must go on BUFGMUX 0..7 (their clock also reaches GFAN
+        // inputs: logic data inputs, a DCM's PSCLK, a PLL's DCLK) but that the
+        // pad's dedicated path can't reach there: fed through general routing
+        // from the pad's data input instead, like a data load (what ISE
+        // requires CLOCK_DEDICATED_ROUTE = FALSE for).
+        pool<IdString> bufg_via_fabric;
         auto is_clock = [&](const PortRef &usr) {
+            if (bufg_via_fabric.count(usr.cell->name))
+                return false;
             return usr.cell->type == id_BUFGMUX || (usr.cell->type == id_DCM && usr.port == id_CLKIN) ||
                    (usr.cell->type == id_PLL && usr.port == id_CLKIN1) ||
                    (usr.cell->type == id_BUFIO2 && usr.port == id_I);
@@ -211,9 +219,13 @@ void Spartan6Impl::pack_clocking()
             (is_clock(usr) ? any_clock : any_data) = true;
         if (!any_clock)
             continue;
+        auto bufgmux_index = [&](BelId bel) {
+            const std::string name = ctx->getBelName(bel)[1].str(ctx);
+            return std::stoi(name.substr(name.find('[') + 1));
+        };
         // Only a clock-capable pin has a dedicated path to the BUFGs; other
         // pins reach them through general routing from the data input.
-        auto reaches_bufg = [&](BelId pad_bel) {
+        auto reaches_bufg = [&](BelId pad_bel, bool low_only = false) {
             WireId src = ctx->getBelPinWire(pad_bel, id_GCLK_I);
             pool<WireId> seen{src};
             std::vector<WireId> frontier{src};
@@ -221,7 +233,7 @@ void Spartan6Impl::pack_clocking()
                 std::vector<WireId> next;
                 for (WireId w : frontier) {
                     for (auto bp : ctx->getWireBelPins(w))
-                        if (ctx->getBelType(bp.bel) == id_BUFGMUX)
+                        if (ctx->getBelType(bp.bel) == id_BUFGMUX && (!low_only || bufgmux_index(bp.bel) < 8))
                             return true;
                     for (PipId pip : ctx->getPipsDownhill(w)) {
                         WireId dst = ctx->getPipDstWire(pip);
@@ -249,6 +261,32 @@ void Spartan6Impl::pack_clocking()
             }
         }
         if (ci->attrs.count(id_BEL) && !reaches_bufg(ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string())))
+            continue;
+        if (ci->attrs.count(id_BEL) && !reaches_bufg(ctx->getBelByNameStr(ci->attrs.at(id_BEL).as_string()), true)) {
+            for (auto &usr : o->users) {
+                if (usr.cell->type != id_BUFGMUX || !bufg_drives_data(usr.cell) || usr.cell->attrs.count(id_BEL))
+                    continue;
+                BelId pick;
+                for (BelId bel : ctx->getBels())
+                    if (ctx->getBelType(bel) == id_BUFGMUX && !used_clock_bels.count(bel) && bufgmux_index(bel) < 8) {
+                        pick = bel;
+                        break;
+                    }
+                if (pick == BelId())
+                    continue; // none free: place_clock_tree warns
+                usr.cell->attrs[id_BEL] = ctx->getBelName(pick).str(ctx);
+                used_clock_bels.insert(pick);
+                bufg_via_fabric.insert(usr.cell->name);
+                log_warning("%s: its clock also reaches GFAN inputs (logic data, DCM PSCLK or PLL DCLK), which only "
+                            "BUFGMUX 0..7 drive, and %s's dedicated clock path reaches none of those; it goes on %s "
+                            "through general routing (ISE needs CLOCK_DEDICATED_ROUTE = FALSE for this)\n",
+                            ctx->nameOf(usr.cell), ctx->nameOf(ci), ctx->nameOfBel(pick));
+            }
+        }
+        any_clock = any_data = false;
+        for (auto &usr : o->users)
+            (is_clock(usr) ? any_clock : any_data) = true;
+        if (!any_clock)
             continue;
         if (any_data) {
             NetInfo *g = ctx->createNet(ctx->idf("%s$gclk", o->name.c_str(ctx)));

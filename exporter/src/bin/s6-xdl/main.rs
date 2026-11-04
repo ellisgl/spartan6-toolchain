@@ -1043,10 +1043,15 @@ fn main() {
                     }
                 };
                 for (port, _) in &c.conns {
-                    let output = !matches!(
-                        port.as_str(),
-                        "I" | "CLKIN" | "CLKFB" | "RST" | "PSCLK" | "PSEN" | "PSINCDEC" | "CLKIN1" | "CLKIN2" | "CLKFBIN" | "CLKINSEL"
-                    );
+                    // PLL DRP inputs: DCLK, DEN, DWE, DADDR0..4, DI0..15.
+                    let drp_in = matches!(port.as_str(), "DCLK" | "DEN" | "DWE")
+                        || port.starts_with("DADDR")
+                        || (port.starts_with("DI") && port[2..].chars().all(|ch| ch.is_ascii_digit()) && port.len() > 2);
+                    let output = !drp_in
+                        && !matches!(
+                            port.as_str(),
+                            "I" | "CLKIN" | "CLKFB" | "RST" | "PSCLK" | "PSEN" | "PSINCDEC" | "CLKIN1" | "CLKIN2" | "CLKFBIN" | "CLKINSEL"
+                        );
                     // BUFIO2's CMT output is the DIVCLK site pin in ISE (the
                     // DIVCLK_CMT naming entry is a wire further down the path,
                     // so name it as DIVCLK and let the repair add the buffers).

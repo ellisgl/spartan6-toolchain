@@ -148,10 +148,10 @@ void Spartan6Impl::pack_cmt()
             NetInfo *sel = ci->getPort(id_CLKINSEL);
             if (sel && sel->constant_value == IdString())
                 log_error("PLL %s: CLKINSEL driven from logic is not supported yet\n", ctx->nameOf(ci));
-            // PLL_ADV's dynamic reconfiguration port (DRP): tied off (constant
-            // DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused) it does nothing, so drop
-            // it; the XDL writer doesn't carry these pins. A used DRP isn't
-            // supported yet.
+            // PLL_ADV's dynamic reconfiguration port (DRP). Tied off (constant
+            // DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused) it does nothing: drop it.
+            // Used from logic, its pins stay and are routed like any other
+            // (constant ones from the tie-offs).
             {
                 bool drp_used = false;
                 std::vector<IdString> drp;
@@ -166,12 +166,11 @@ void Spartan6Impl::pack_cmt()
                     if (port.net && ((in && port.net->constant_value == IdString()) || (out && port.net->users.entries())))
                         drp_used = true;
                 }
-                if (drp_used)
-                    log_error("PLL %s: the dynamic reconfiguration port (DCLK/DEN/DWE/DADDR/DI/DO/DRDY) is not "
-                              "supported yet\n",
-                              ctx->nameOf(ci));
-                for (IdString p : drp)
-                    drop_port(ci, p);
+                if (!drp_used)
+                    for (IdString p : drp)
+                        drop_port(ci, p);
+                // DCLK is reached through the interconnect (GFAN), so its BUFG
+                // needs BUFGMUX 0..7 (see bufg_drives_data and pack_clocking).
             }
             // PLL_ADV's reserved REL pin has no site pin.
             if (NetInfo *rel = ci->getPort(ctx->id("REL"))) {
@@ -315,7 +314,10 @@ bool Spartan6Impl::bufg_drives_data(const CellInfo *bufg) const
     if (!o)
         return false;
     for (auto &u : o->users) {
-        if (u.cell->type == id_IOB || (u.cell->type == id_DCM && u.port == id_PSCLK))
+        // A DCM's PSCLK and a PLL's DRP clock are reached through the
+        // interconnect (GFAN), like data inputs.
+        if (u.cell->type == id_IOB || (u.cell->type == id_DCM && u.port == id_PSCLK) ||
+            (u.cell->type == id_PLL && u.port == ctx->id("DCLK")))
             return true;
         if (u.cell->type.in(id_SLICE_LUT, id_SLICE_LUT5, id_SLICE_FF, id_SLICE_FF5, id_SLICE_LUTRAM, id_CARRY4) &&
             !u.port.in(id_CK, id_CLK, id_SR))

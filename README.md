@@ -156,6 +156,7 @@ talks to the Mojo over its USB serial port):
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `pllsel2` | `tools/pll2-test.py` | as `pll2` on a PLL_ADV, clock on CLKIN2 with CLKINSEL = 0 (DRP tied off) |
+| `plldrp` | `tools/plldrp-test.py` | PLL_ADV DRP from logic: CLKOUT0's divider rewritten over the DRP (125 -> 100 -> 125 MHz), read back, LOCKED |
 | `ffcap` | `tools/ffcap-test.py` | 7680 FFs (960-stage, 8-lane shift register with reset): more than the main FFs, so 2629 sit on 5FFs through pass-through LUT5s |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
 
@@ -562,7 +563,9 @@ primary source is kept, as an always-on pip) and factory-test wires
   CLKIN2. A constant CLKINSEL only picks which PLL_ADV input carries the
   clock (0: CLKIN2); that one is kept and placed as above, the other
   dropped. A tied-off DRP (constant DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused)
-  and the reserved REL pin are dropped too. (Fed from the fabric BUFG, the PLL missed LOCKED at some
+  and the reserved REL pin are dropped too; a DRP used from logic keeps its
+  pins (DCLK reaches the PLL through the interconnect's GFAN input, so its
+  BUFG needs BUFGMUX 0..7, below). (Fed from the fabric BUFG, the PLL missed LOCKED at some
   multipliers, e.g. x9 and x10, though its outputs were right.) COMPENSATION
   = SYSTEM/SOURCE_SYNCHRONOUS (PLL_BASE's default) with CLKFBOUT wired
   straight to CLKFBIN becomes INTERNAL, as ISE's map does; with the feedback
@@ -640,8 +643,8 @@ Packer limits for now:
   pairing and 5FFs is capacity.
 - **Not supported yet (packer errors out):** PLL CLKINSEL driven from logic
   (ISE requires both inputs from LOC-constrained BUFIO2s, two clock pins
-  that reach the PLL's site; the Mojo V3 has one clock source), the PLL's
-  DRP used from logic, and REL driven.
+  that reach the PLL's site; the Mojo V3 has one clock source) and REL
+  driven.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
   OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9's
@@ -672,7 +675,14 @@ Packer limits for now:
   folds them.
 - **BUFG inputs:** a pad only feeds BUFGs over the dedicated clock path when
   that path reaches one (clock-capable pins); otherwise through general
-  routing from the data input, on any free BUFGMUX. BUFGs use I0 only.
+  routing from the data input, on any free BUFGMUX. BUFGs use I0 only. A
+  BUFG whose clock also reaches GFAN inputs (logic data, a DCM's PSCLK, a
+  PLL's DCLK) needs BUFGMUX 0..7; when its pad's dedicated path reaches none
+  of those (the Mojo's P56 only reaches 8..15), it goes on a free one through
+  general routing, with a warning, as ISE does with CLOCK_DEDICATED_ROUTE =
+  FALSE (ISE stops with Place:1108 otherwise). Feeding DCLK from the pad
+  instead skews it against the logic's global clock: DRP reads and writes
+  came back wrong on the board.
 - **Latches (LDCE/LDPE):** slice FFs in latch mode (`FF_LATCH`, slice-wide,
   so part of the control set; never 5FFs), gate on the clock pin with the
   slice's clock inversion for an active-high gate (as ISE writes CLKINV =
