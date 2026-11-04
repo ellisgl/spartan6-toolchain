@@ -233,7 +233,8 @@ can't use: a plain multiply's clock-to-P is 4.6 ns, multiply-add's 5.9 ns).
 (`tests/dsp_char*`, 16 DSPs each): all 128 combinations of the A, B, C, D,
 M, P and OPMODE registers with OPMODE from logic, and the 64 combinations of
 A..P for each of the constant modes 01, 09 (with PREG; ISE requires it), 0d,
-11, 1d and 03. That's 480 chip database variants, `DSP_<registers>` and
+11, 1d, 03 and 51 (pre-subtract), and 05 (multiply plus PCIN, what yosys
+uses for cascades) in cascade chains. That's 608 chip database variants, `DSP_<registers>` and
 `DSP_<registers>_<mode>`; the uarch picks one per cell in `prePlace`, the
 constant-mode one when it exists. ISE times buses as a whole (`A[17:0] ->
 P[47:0]`), so arcs are stored once on bit 0 and the uarch maps every bus pin
@@ -591,9 +592,9 @@ Packer limits for now:
   ISE requires both inputs from LOC-constrained BUFIO2s (two clock pins)
   that reach the PLL's site; the Mojo V3 has one clock source.
 - **Timing:** from the delay model below; DSP OPMODE values other than the
-  six measured fall back to the OPMODE-from-logic numbers (pessimistic);
-  that includes 05 (multiply plus PCIN, which yosys uses for cascades) and
-  51 (pre-subtract). Other devices use the xc6slx9-2 delay model.
+  eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
+  OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9-2
+  delay model.
 - **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as
   a DDR register, clocked through the I/O tile's IOI_DDR (prjcombine's DDR
   clocking). With C1 = ~C0 (the LUT inverter yosys makes) it takes C0 on

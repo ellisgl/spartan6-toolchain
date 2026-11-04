@@ -20,7 +20,8 @@ dsp_casc_char*: the cascade arcs (PCIN, BCIN, CARRYIN in; PCOUT, BCOUT,
 CARRYOUT out), one chain of all 16 DSPs per design, each DSP fed by the one
 below through PCOUT -> PCIN, BCOUT -> B and CARRYOUT -> CARRYIN. The 128
 OPMODE-from-logic configurations appear twice, rotated by half a chain, so
-every configuration is measured both driving and receiving a cascade.
+every configuration is measured both driving and receiving a cascade, and
+the 64 A..P configurations again for each of CASC_CONST_OPMODES.
 CARRYOUTF joins P in the XOR-reduce.
 """
 
@@ -32,7 +33,11 @@ PER_DESIGN = 16
 # X = M (multiplier), Z = 0 / P / C, with and without the pre-adder, and
 # X = D:A:B. Which modes yosys's DSP48A1 mapping produces: 01 (multiply),
 # 09 (multiply-accumulate), 0d (multiply-add C).
-CONST_OPMODES = [0x01, 0x09, 0x0D, 0x11, 0x1D, 0x03]
+# 51: the pre-subtracter.
+CONST_OPMODES = [0x01, 0x09, 0x0D, 0x11, 0x1D, 0x03, 0x51]
+# Constant OPMODEs measured in cascade chains (dsp_casc_char*): 05 is
+# multiply plus PCIN, what yosys uses for P cascades.
+CASC_CONST_OPMODES = [0x05]
 
 
 def params(cfg):
@@ -98,7 +103,8 @@ def casc_design(n, cfgs):
     ]
     for i, cfg in enumerate(cfgs):
         base = i * width
-        prm = params(cfg)
+        op = None if cfg >> 8 == 0 else (cfg >> 8) - 1
+        prm = params(cfg & 0x7f)
         if i > 0:
             prm["CARRYINSEL"] = '"CARRYIN"'
         ps = ", ".join(f".{k}({v})" for k, v in prm.items())
@@ -107,7 +113,8 @@ def casc_design(n, cfgs):
         cin = "1'b0" if i == 0 else f"co{i - 1}"
         last = i == len(cfgs) - 1
         lines += [
-            f"    // {''.join(g for j, g in enumerate(GROUPS) if cfg >> j & 1) or 'none'} registered",
+            f"    // {''.join(g for j, g in enumerate(GROUPS) if cfg >> j & 1) or 'none'} registered"
+            + ("" if op is None else f", OPMODE {op:#04x}"),
             f"    wire [47:0] p{i}, pc{i};",
             f"    wire [17:0] bc{i};",
             f"    wire co{i}, cof{i};",
@@ -115,7 +122,7 @@ def casc_design(n, cfgs):
             f"        .CLK(clk),",
             f"        .A(x[{base + 17}:{base}]), .B({b}),",
             f"        .C(x[{base + 83}:{base + 36}]), .D(x[{base + 101}:{base + 84}]),",
-            f"        .OPMODE(x[{base + 109}:{base + 102}]),",
+            f"        .OPMODE({f'x[{base + 109}:{base + 102}]' if op is None else f"8'h{op:02x}"}),",
             "        .CEA(1'b1), .CEB(1'b1), .CEC(1'b1), .CED(1'b1), .CEM(1'b1), .CEP(1'b1),",
             "        .CEOPMODE(1'b1), .CECARRYIN(1'b1),",
             "        .RSTA(1'b0), .RSTB(1'b0), .RSTC(1'b0), .RSTD(1'b0), .RSTM(1'b0), .RSTP(1'b0),",
@@ -151,6 +158,14 @@ def main():
     half = PER_DESIGN // 2
     chains = [logic[i:i + PER_DESIGN] for i in range(0, len(logic), PER_DESIGN)]
     chains += [c[half:] + c[:half] for c in chains]
+    # Constant OPMODEs (OPMODEREG doesn't matter: the 64 A..P configurations),
+    # 15 to a chain above a feeder DSP with OPMODE from logic (ISE's DRC: a
+    # DSP using PCIN needs one below it).
+    for op in CASC_CONST_OPMODES:
+        const = [(op + 1) << 8 | c for c in range(1 << (len(GROUPS) - 1))]
+        n = PER_DESIGN - 1
+        cc = [const[i:i + n] for i in range(0, len(const), n)]
+        chains += [[0] + c for c in cc] + [[0] + c[len(c) // 2:] + c[:len(c) // 2] for c in cc]
     for n, cfgs in enumerate(chains):
         name, text = casc_design(n, cfgs)
         d = os.path.join(ROOT, "tests", name)

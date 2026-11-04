@@ -291,12 +291,15 @@ fn add_cells(ch: &mut Chip, grade: &str, cd: &Cells) {
         };
         let dsp = ch.add_cell_variant(grade, &format!("DSP_{}{op}", if regs.is_empty() { "NONE" } else { regs }));
         let key = format!("X_DSP48A1:{cfg}");
-        // Cascades were only measured with OPMODE from logic
-        // (tests/dsp_casc_char*): a constant-OPMODE variant takes its
-        // cascade-pin arcs from there.
+        // Cascades were measured with OPMODE from logic (tests/dsp_casc_char*):
+        // a constant-OPMODE variant takes its cascade-pin arcs from there ...
         let logic_key = format!("X_DSP48A1:{regs}");
+        // ... unless they were measured too (CASC_CONST_OPMODES in
+        // tools/gen_dsp_char.py).
+        let own_cascade = cd.0.cell_delays.iter().any(|a| a.celltype == key && (is_cascade(&a.from) || is_cascade(&a.to)));
         let theirs = |celltype: &str, pins: [&str; 2]| {
-            celltype == key || (!op.is_empty() && celltype == logic_key && pins.iter().any(|p| is_cascade(p)))
+            celltype == key
+                || (!op.is_empty() && !own_cascade && celltype == logic_key && pins.iter().any(|p| is_cascade(p)))
         };
         for a in cd.0.cell_delays.iter().filter(|a| theirs(&a.celltype, [&a.from, &a.to])) {
             if a.from == "CLK" {
