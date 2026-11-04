@@ -1,0 +1,15 @@
+# pllseldyn (ISE cross-check only): the bottom edge's P56 / P55 clock pair.
+NET "clk"    LOC = P56  | IOSTANDARD = LVTTL;
+NET "clk2"   LOC = P55  | IOSTANDARD = LVTTL;
+NET "rst_n"  LOC = P38  | IOSTANDARD = LVTTL;
+NET "led<0>" LOC = P134 | IOSTANDARD = LVTTL;
+NET "led<1>" LOC = P133 | IOSTANDARD = LVTTL;
+NET "led<2>" LOC = P132 | IOSTANDARD = LVTTL;
+NET "led<3>" LOC = P131 | IOSTANDARD = LVTTL;
+NET "led<4>" LOC = P127 | IOSTANDARD = LVTTL;
+NET "led<5>" LOC = P126 | IOSTANDARD = LVTTL;
+NET "led<6>" LOC = P124 | IOSTANDARD = LVTTL;
+NET "led<7>" LOC = P123 | IOSTANDARD = LVTTL;
+
+NET "clk"  PERIOD = 50 MHz;
+NET "clk2" PERIOD = 25 MHz;

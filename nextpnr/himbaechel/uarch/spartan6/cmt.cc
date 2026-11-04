@@ -146,8 +146,10 @@ void Spartan6Impl::pack_cmt()
             // ends up on is chosen below (CLKIN_SOURCE, the bitstream's
             // CLKINSEL_STATIC_VAL), as for PLL_BASE.
             NetInfo *sel = ci->getPort(id_CLKINSEL);
-            if (sel && sel->constant_value == IdString())
-                log_error("PLL %s: CLKINSEL driven from logic is not supported yet\n", ctx->nameOf(ci));
+            // CLKINSEL from logic switches between both inputs, so they keep
+            // their pins. ISE requires each from a clock pad through its own
+            // BUFIO2 (placed so both reach this PLL; see place_clock_tree).
+            bool dynamic = sel && sel->constant_value == IdString();
             // PLL_ADV's dynamic reconfiguration port (DRP). Tied off (constant
             // DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused) it does nothing: drop it.
             // Used from logic, its pins stay and are routed like any other
@@ -178,6 +180,30 @@ void Spartan6Impl::pack_cmt()
                     log_error("PLL %s: REL driven from logic is not supported (the site has no REL pin)\n",
                               ctx->nameOf(ci));
                 drop_port(ci, ctx->id("REL"));
+            }
+            if (dynamic) {
+                ci->params[ctx->id("CLKINSEL_DYNAMIC")] = std::string("TRUE");
+                ci->params[id_CLKIN_SOURCE] = std::string("CLKIN1");
+                for (IdString pin : {id_CLKIN1, id_CLKIN2}) {
+                    bypass_bufg(ctx, ci, pin);
+                    NetInfo *in = ci->getPort(pin);
+                    if (!in || !in->driver.cell || in->driver.cell->type != id_IOB)
+                        log_error("PLL %s: with CLKINSEL from logic, %s must come from a clock pin (through a BUFG "
+                                  "or directly)\n",
+                                  ctx->nameOf(ci), pin.c_str(ctx));
+                    CellInfo *b = ctx->createCell(ctx->idf("%s$bufio2_%s", ci->name.c_str(ctx), pin.c_str(ctx)), id_BUFIO2);
+                    b->addInput(id_I);
+                    b->addOutput(id_DIVCLK_CMT);
+                    b->connectPort(id_I, in);
+                    NetInfo *o = ctx->createNet(ctx->idf("%s$bufio2_%s_out", ci->name.c_str(ctx), pin.c_str(ctx)));
+                    b->connectPort(id_DIVCLK_CMT, o);
+                    ci->disconnectPort(pin);
+                    ci->connectPort(pin, o);
+                }
+                tie_low(ci, {id_RST});
+                ci->type = id_PLL;
+                plls++;
+                continue;
             }
             bool use2 = sel && sel->constant_value == id_GND;
             drop_port(ci, id_CLKINSEL);
@@ -258,7 +284,9 @@ void Spartan6Impl::pack_cmt()
 // or DCM its output feeds.
 bool Spartan6Impl::bufio2fb_reaches_pll(CellInfo *fb, BelId bel)
 {
-    NetInfo *o = fb->getPort(id_O);
+    // A BUFIO2FB's output is O; a BUFIO2's CMT output is DIVCLK_CMT.
+    IdString out = fb->type == id_BUFIO2 ? id_DIVCLK_CMT : id_O;
+    NetInfo *o = fb->getPort(out);
     if (!o)
         return true;
     for (auto &u : o->users) {
@@ -266,8 +294,8 @@ bool Spartan6Impl::bufio2fb_reaches_pll(CellInfo *fb, BelId bel)
             continue;
         BelId pll = ctx->getBelByNameStr(u.cell->attrs.at(id_BEL).as_string());
         WireId target = ctx->getBelPinWire(pll, u.port);
-        pool<WireId> seen{ctx->getBelPinWire(bel, id_O)};
-        std::vector<WireId> frontier{ctx->getBelPinWire(bel, id_O)};
+        pool<WireId> seen{ctx->getBelPinWire(bel, out)};
+        std::vector<WireId> frontier{ctx->getBelPinWire(bel, out)};
         for (int d = 1; d <= 8 && !frontier.empty(); d++) {
             std::vector<WireId> next;
             for (WireId w : frontier)
@@ -280,6 +308,58 @@ bool Spartan6Impl::bufio2fb_reaches_pll(CellInfo *fb, BelId bel)
                 }
             frontier = std::move(next);
         }
+        return false;
+    }
+    return true;
+}
+
+static dict<WireId, int> wire_distances(Context *ctx, WireId src, int depth);
+
+// A PLL with CLKINSEL from logic takes CLKIN1 and CLKIN2 through one pair
+// mux in its tile, whose only two-input settings from BUFIO2s are
+// DIVCLK_CMT_V[n] on CLKIN1 with DIVCLK_CMT_V[n + 4] on CLKIN2 (n = 0..3).
+// So CLKIN1's BUFIO2 goes on index 0..3 and CLKIN2's four above it, in the
+// same tile.
+bool Spartan6Impl::dynamic_pll_pair_ok(CellInfo *b, BelId bel)
+{
+    NetInfo *o = b->getPort(id_DIVCLK_CMT);
+    if (!o)
+        return true;
+    auto index = [&](BelId x) {
+        const std::string name = ctx->getBelName(x)[1].str(ctx);
+        return std::stoi(name.substr(name.find('[') + 1));
+    };
+    for (auto &u : o->users) {
+        if (u.cell->type != id_PLL || !u.cell->params.count(ctx->id("CLKINSEL_DYNAMIC")))
+            continue;
+        if (bel == BelId())
+            return false; // asked whether b feeds such a PLL: yes
+        bool is1 = u.port == id_CLKIN1;
+        int i = index(bel);
+        if (is1 ? i >= 4 : i < 4)
+            return false;
+        NetInfo *other = u.cell->getPort(is1 ? id_CLKIN2 : id_CLKIN1);
+        if (!other || !other->driver.cell)
+            return true;
+        CellInfo *ob_cell = other->driver.cell;
+        Loc la = ctx->getBelLocation(bel);
+        int want = is1 ? i + 4 : i - 4;
+        // The other input's BUFIO2, if already placed: the partner site.
+        if (ob_cell->attrs.count(id_BEL)) {
+            BelId ob = ctx->getBelByNameStr(ob_cell->attrs.at(id_BEL).as_string());
+            Loc lb = ctx->getBelLocation(ob);
+            return la.x == lb.x && la.y == lb.y && index(ob) == want;
+        }
+        // Not yet: its pad must reach the partner site.
+        NetInfo *pin = ob_cell->getPort(id_I);
+        if (!pin || !pin->driver.cell || !pin->driver.cell->attrs.count(id_BEL))
+            return true;
+        BelId pad = ctx->getBelByNameStr(pin->driver.cell->attrs.at(id_BEL).as_string());
+        auto dist = wire_distances(ctx, ctx->getBelPinWire(pad, id_GCLK_I), 10);
+        for (BelId x : ctx->getBelsByTile(la.x, la.y))
+            if (ctx->getBelType(x) == id_BUFIO2 && index(x) == want && !used_clock_bels.count(x) &&
+                dist.count(ctx->getBelPinWire(x, id_I)))
+                return true;
         return false;
     }
     return true;
@@ -353,8 +433,9 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
         else if (c->type == id_BUFIO2FB && usr.port == id_I)
             pins = {id_I};
         else if (c->type == id_PLL && usr.port.in(id_CLKIN1, id_CLKIN2))
-            pins = net->driver.cell && net->driver.cell->type == id_BUFIO2 ? std::vector<IdString>{id_CLKIN1, id_CLKIN2}
-                                                                           : std::vector<IdString>{usr.port};
+            pins = net->driver.cell && net->driver.cell->type == id_BUFIO2 && !c->params.count(ctx->id("CLKINSEL_DYNAMIC"))
+                           ? std::vector<IdString>{id_CLKIN1, id_CLKIN2}
+                           : std::vector<IdString>{usr.port};
         else
             continue;
         BelId best;
@@ -376,8 +457,10 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
                 continue;
             if (pass == 0 && !gclk_ok(bel))
                 continue;
-            // A BUFIO2FB must also reach its (already placed) PLL's CLKFBIN.
-            if (c->type == id_BUFIO2FB && !bufio2fb_reaches_pll(c, bel))
+            // A BUFIO2FB (or a BUFIO2) must also reach its already placed PLL's pin.
+            if (c->type.in(id_BUFIO2FB, id_BUFIO2) && !bufio2fb_reaches_pll(c, bel))
+                continue;
+            if (c->type == id_BUFIO2 && !dynamic_pll_pair_ok(c, bel))
                 continue;
             for (IdString pin : pins) {
                 auto it = dist.find(ctx->getBelPinWire(bel, pin));
@@ -401,6 +484,11 @@ void Spartan6Impl::place_clock_tree(WireId src, NetInfo *net, const std::string 
             if (best != BelId())
                 log_info("    %s: no dedicated path from %s, using general routing\n", ctx->nameOf(c), from.c_str());
         }
+        if (best == BelId() && c->type == id_BUFIO2 && !dynamic_pll_pair_ok(c, BelId()))
+            log_error("No BUFIO2 site for %s: a PLL with CLKINSEL from logic needs its CLKIN1 and CLKIN2 from "
+                      "the two pins of one clock pair on its edge (e.g. P56 / P55 on the TQG144's bottom edge), "
+                      "which reach BUFIO2 n and n + 4 (the PLL's input pair mux takes no other combination)\n",
+                      ctx->nameOf(c));
         if (best == BelId())
             log_error("No %s site is reachable from %s for %s\n", c->type.c_str(ctx), from.c_str(), ctx->nameOf(c));
         if (!gclk_ok(best))

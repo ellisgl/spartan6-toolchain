@@ -156,6 +156,7 @@ talks to the Mojo over its USB serial port):
 | `pll3` | `tools/pll3-test.py` | PLL_BASE with BUFG feedback (BUFIO2FB, ILOGIC route-through), LOCKED |
 | `pll2` | `tools/pll2-test.py` | PLL_BASE with default compensation, direct feedback, LOCKED |
 | `pllsel2` | `tools/pll2-test.py` | as `pll2` on a PLL_ADV, clock on CLKIN2 with CLKINSEL = 0 (DRP tied off) |
+| `pllseldyn` | (ISE check only) | PLL_ADV CLKINSEL from logic: P56 on CLKIN1, P55 on CLKIN2 (on the Mojo P55 is the AVR's serial line, so not on the board) |
 | `plldrp` | `tools/plldrp-test.py` | PLL_ADV DRP from logic: CLKOUT0's divider rewritten over the DRP (125 -> 100 -> 125 MHz), read back, LOCKED |
 | `ffcap` | `tools/ffcap-test.py` | 7680 FFs (960-stage, 8-lane shift register with reset): more than the main FFs, so 2629 sit on 5FFs through pass-through LUT5s |
 | `dll` | `tools/dll-test.py` | DCM_SP DLL: CLK0 feedback, CLK90, CLK2X, CLKDV (2.5), CLKFX |
@@ -565,7 +566,12 @@ primary source is kept, as an always-on pip) and factory-test wires
   dropped. A tied-off DRP (constant DCLK/DEN/DWE/DADDR/DI, DO/DRDY unused)
   and the reserved REL pin are dropped too; a DRP used from logic keeps its
   pins (DCLK reaches the PLL through the interconnect's GFAN input, so its
-  BUFG needs BUFGMUX 0..7, below). (Fed from the fabric BUFG, the PLL missed LOCKED at some
+  BUFG needs BUFGMUX 0..7, below). CLKINSEL from logic keeps both inputs,
+  each from a clock pin through its own BUFIO2, on their own pins
+  (CLKINSEL_MODE_DYNAMIC in the bitstream). The PLL's input pair mux takes
+  two BUFIO2s together only as DIVCLK_CMT_V[n] on CLKIN1 with V[n + 4] on
+  CLKIN2, which the clock-tree placement enforces: in practice the two pins
+  of one clock pair on the PLL's edge (P56 / P55 on the TQG144's bottom). (Fed from the fabric BUFG, the PLL missed LOCKED at some
   multipliers, e.g. x9 and x10, though its outputs were right.) COMPENSATION
   = SYSTEM/SOURCE_SYNCHRONOUS (PLL_BASE's default) with CLKFBOUT wired
   straight to CLKFBIN becomes INTERNAL, as ISE's map does; with the feedback
@@ -641,10 +647,9 @@ Packer limits for now:
 - **Placement doesn't minimise slices:** on a mostly empty chip the placer
   spreads logic out, so small designs don't use fewer slices; the gain from
   pairing and 5FFs is capacity.
-- **Not supported yet (packer errors out):** PLL CLKINSEL driven from logic
-  (ISE requires both inputs from LOC-constrained BUFIO2s, two clock pins
-  that reach the PLL's site; the Mojo V3 has one clock source) and REL
-  driven.
+- **Not supported yet (packer errors out):** a PLL's REL driven from logic
+  (the site has no REL pin), and CLKINSEL from logic with inputs that aren't
+  one clock pair (E/W pairs from the left and right edges aren't tried).
 - **Timing:** from the delay model below; DSP OPMODE values other than the
   eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
   OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9's
@@ -712,8 +717,7 @@ TQG144's, as ISE lists them), VREF for the package's VREF pins.)
   `s6-chipdb` lists) uses a typical 250 ps per hop; it only matters across
   clock domains. The delay model is measured for -2 and -3 (-3N uses -3's);
   devices other than the xc6slx9 use the xc6slx9's (same fabric).
-- **PLL CLKINSEL from logic** (see the uarch section) and the GTP, PCIe and
-  memory controller blocks.
+- **GTP, PCIe and memory controller** blocks.
 
 ## Licence
 

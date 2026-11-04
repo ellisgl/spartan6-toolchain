@@ -1108,6 +1108,13 @@ impl<'a> Gen<'a> {
                 }
                 let clkin2 = p("CLKIN_SOURCE").as_deref() == Some("CLKIN2");
                 self.set_raw_num(bcrd, "CLKINSEL_STATIC_VAL", clkin2 as u64);
+                // CLKINSEL from logic (both inputs used): as ISE writes it, the
+                // static value and the pin's raw inversion bit set too.
+                if p("CLKINSEL_DYNAMIC").as_deref() == Some("TRUE") {
+                    self.set_raw_num(bcrd, "CLKINSEL_MODE_DYNAMIC", 1);
+                    self.set_raw_num(bcrd, "CLKINSEL_STATIC_VAL", 1);
+                    self.set_input_inv_raw(bcrd, "CLKINSEL", true);
+                }
                 for (attr, v) in [
                     ("ENABLE", 1u64), ("PLL_ADD_LEAKAGE", 2), ("PLL_AVDD_COMP_SET", 2), ("PLL_CLAMP_BYPASS", 1),
                     ("PLL_CLAMP_REF_SEL", 1), ("PLL_CLKCNTRL", 1), ("PLL_CLK_LOST_DETECT", 1), ("PLL_CP_REPL", 1),
@@ -1226,11 +1233,38 @@ impl<'a> Gen<'a> {
             let tcls = &self.int.tile_classes[self.edev[tcrd].class];
             let BelInfo::SwitchBox(sb) = &tcls.bels[bslot] else { unreachable!() };
             let SwitchBoxItem::PairMux(pm) = &sb.items[idx] else { unreachable!() };
+            let wname = |tw: &prjcombine_interconnect::db::TileWireCoord| {
+                s6_export::wire_name(self.int, tcls, *tw)
+            };
             let (_, pat) = pm
                 .src
                 .iter()
                 .find(|(key, _)| (0..2).all(|k| used[k].is_none_or(|u| key[k].is_some_and(|s| s.tw == u))))
-                .expect("no pair mux setting for this combination");
+                .unwrap_or_else(|| {
+                    let outs: Vec<String> = (0..2)
+                        .map(|k| match used[k] {
+                            Some(u) => format!("{} <- {}", wname(&pm.dst[k]), wname(&u)),
+                            None => format!("{} unused", wname(&pm.dst[k])),
+                        })
+                        .collect();
+                    let opts: Vec<String> = pm
+                        .src
+                        .keys()
+                        .map(|key| {
+                            (0..2)
+                                .map(|k| key[k].map_or("-".to_string(), |s| wname(&s.tw)))
+                                .collect::<Vec<_>>()
+                                .join(" + ")
+                        })
+                        .collect();
+                    panic!(
+                        "no pair mux setting in tile {:?} ({}) for {}; it allows: {}",
+                        tcrd,
+                        tcls.name,
+                        outs.join(", "),
+                        opts.join("; ")
+                    )
+                });
             let (pat, bits) = (pat.clone(), pm.bits.clone());
             for (i, b) in bits.into_iter().enumerate() {
                 self.set_tb(tcrd, b, pat[i]);
