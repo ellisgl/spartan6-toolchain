@@ -252,9 +252,13 @@ can't use: a plain multiply's clock-to-P is 4.6 ns, multiply-add's 5.9 ns).
 `tools/gen_dsp_char.py` generates characterization designs
 (`tests/dsp_char*`, 16 DSPs each): all 128 combinations of the A, B, C, D,
 M, P and OPMODE registers with OPMODE from logic, and the 64 combinations of
-A..P for each of the constant modes 01, 09 (with PREG; ISE requires it), 0d,
-11, 1d, 03 and 51 (pre-subtract), and 05 (multiply plus PCIN, what yosys
-uses for cascades) in cascade chains. That's 608 chip database variants, `DSP_<registers>` and
+A..P for each of the constant modes yosys produces, 01, 09 (with PREG; ISE
+requires it), 0d, 11, 1d, 03 and 51 (pre-subtract), and for the common
+hand-instantiated ones, 0b (P + D:A:B), 0c (C), 0f (C + D:A:B, a 48-bit
+add), 19 (pre-adder multiply-accumulate), 89 (P - M) and 8d (C - M); and
+05 (multiply plus PCIN, what yosys uses for cascades), 07 (D:A:B + PCIN)
+and 15 (pre-adder multiply plus PCIN) in cascade chains. That's 1024 chip
+database variants, `DSP_<registers>` and
 `DSP_<registers>_<mode>`; the uarch picks one per cell in `prePlace`, the
 constant-mode one when it exists. ISE times buses as a whole (`A[17:0] ->
 P[47:0]`), so arcs are stored once on bit 0 and the uarch maps every bus pin
@@ -268,8 +272,8 @@ the same registers. ISE's 59 ps cascade wire delay isn't modelled.
 The characterization designs give cell timing only (`--cells-only`):
 their long shift registers would skew the routing fit.
 
-Fit: 52,639 connections from 13 designs, 158 ps rms error (mean connection
-delay 1.38 ns). Routing in the I/O tiles' interconnect (INT_IOI: the die's
+Fit: 52,639 connections from 13 designs, 151 ps rms error (mean connection
+delay 1.40 ns; at -3, 133 ps rms, mean 1.24 ns). Routing in the I/O tiles' interconnect (INT_IOI: the die's
 outer rows and columns) is fitted separately (`<class>@IOI`): it is slower
 than the fabric's, and the pad-to-fabric input (`OUT@IOI`) alone is about
 1.5 ns. Against ISE's own analyser (`trce`) on the same placement and
@@ -278,27 +282,27 @@ tools do):
 
 | Design | nextpnr | ISE trce | Error |
 |---|---|---|---|
-| lutram | 9.45 ns | 9.27 ns | +1.9% |
-| srlq31 | 7.57 ns | 7.40 ns | +2.3% |
-| dspcasc | 7.42 ns | 7.60 ns | -2.3% |
-| tristate | 7.82 ns | 7.64 ns | +2.4% |
-| bram | 9.06 ns | 8.83 ns | +2.5% |
-| alu (DSPs) | 14.17 ns | 13.70 ns | +3.4% |
-| speed | 9.83 ns | 9.44 ns | +4.1% |
-| pll2 | 7.26 ns | 7.60 ns | -4.5% |
-| clocks | 8.47 ns | 8.94 ns | -5.3% |
-| dll | 7.31 ns | 7.83 ns | -6.6% |
-| fill | 11.03 ns | 11.85 ns | -6.9% |
-| rom | 8.90 ns | 8.29 ns | +7.3% |
-| dsp | 7.70 ns | 8.35 ns | -7.7% |
-| uart_echo | 6.66 ns | 7.42 ns | -10.3% |
-| iddr2clk | 9.72 ns | 8.73 ns | +11.3% |
-| oddr (half-cycle path) | 9.43 ns | 11.06 ns | -14.8% |
+| alu (DSPs) | 14.31 ns | 14.30 ns | +0.1% |
+| bram | 9.07 ns | 8.97 ns | +1.1% |
+| dsp | 8.17 ns | 8.29 ns | -1.4% |
+| dspcasc | 7.42 ns | 7.57 ns | -2.0% |
+| lutram | 8.74 ns | 8.92 ns | -2.0% |
+| pll2 | 8.28 ns | 8.03 ns | +3.1% |
+| fill | 8.84 ns | 9.13 ns | -3.2% |
+| dll | 7.68 ns | 7.98 ns | -3.8% |
+| clocks | 8.29 ns | 8.65 ns | -4.2% |
+| srlq31 | 7.86 ns | 7.48 ns | +5.1% |
+| iddr2clk | 8.48 ns | 8.02 ns | +5.7% |
+| rom | 7.51 ns | 7.10 ns | +5.8% |
+| tristate | 8.41 ns | 7.81 ns | +7.7% |
+| speed | 9.67 ns | 8.83 ns | +9.5% |
+| uart_echo | 6.88 ns | 7.61 ns | -9.6% |
+| oddr (half-cycle path) | 9.47 ns | 10.71 ns | -11.6% |
 
-What's left is mostly the routing model: per connection it's off by
-~160 ps rms (one delay per wire class can't follow ISE's per-wire, per-load
-detail), and a long or high-fanout route (dsp's critical path is LUTs
-with one 4.4 ns net) carries most of a path's error.
+Mean error 4.7%. What's left is mostly the routing model: per connection
+it's off by ~150 ps rms (one delay per wire class can't follow ISE's
+per-wire, per-load detail), and a long or high-fanout route carries most of
+a path's error.
 
 LUT inputs a table doesn't depend on get no timing arc (the uarch overrides
 `getCellDelay`/`getPortTimingClass`): LUTs sharing a LUT6 site are wired to
@@ -651,7 +655,8 @@ Packer limits for now:
   (the site has no REL pin), and CLKINSEL from logic with inputs that aren't
   one clock pair (E/W pairs from the left and right edges aren't tried).
 - **Timing:** from the delay model below; DSP OPMODE values other than the
-  eight measured (01, 03, 05, 09, 0d, 11, 1d, 51) fall back to the
+  sixteen measured (01, 03, 05, 07, 09, 0b, 0c, 0d, 0f, 11, 15, 19, 1d, 51,
+  89, 8d) fall back to the
   OPMODE-from-logic numbers (pessimistic). Other devices use the xc6slx9's
   delay model for their speed grade.
 - **ODDR2 (DDR output, clock forwarding):** packed onto the pad's OLOGIC as

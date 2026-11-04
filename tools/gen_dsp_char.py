@@ -33,11 +33,15 @@ PER_DESIGN = 16
 # X = M (multiplier), Z = 0 / P / C, with and without the pre-adder, and
 # X = D:A:B. Which modes yosys's DSP48A1 mapping produces: 01 (multiply),
 # 09 (multiply-accumulate), 0d (multiply-add C).
-# 51: the pre-subtracter.
-CONST_OPMODES = [0x01, 0x09, 0x0D, 0x11, 0x1D, 0x03, 0x51]
+# 51: the pre-subtracter. Then modes for hand-instantiated DSPs (appended,
+# so the designs above keep their numbers): 0b P + D:A:B, 0c C, 0f C + D:A:B
+# (48-bit add), 19 pre-adder multiply-accumulate, 89 P - M and 8d C - M
+# (post-subtract).
+CONST_OPMODES = [0x01, 0x09, 0x0D, 0x11, 0x1D, 0x03, 0x51, 0x0B, 0x0C, 0x0F, 0x19, 0x89, 0x8D]
 # Constant OPMODEs measured in cascade chains (dsp_casc_char*): 05 is
-# multiply plus PCIN, what yosys uses for P cascades.
-CASC_CONST_OPMODES = [0x05]
+# multiply plus PCIN, what yosys uses for P cascades; 07 D:A:B + PCIN and
+# 15 pre-adder multiply plus PCIN.
+CASC_CONST_OPMODES = [0x05, 0x07, 0x15]
 
 
 def params(cfg):
