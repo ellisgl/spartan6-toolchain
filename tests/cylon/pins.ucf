@@ -1,0 +1,3 @@
+
+# The 50 MHz board clock (the placer and timing report use it).
+NET "clk" PERIOD = 50 MHz;

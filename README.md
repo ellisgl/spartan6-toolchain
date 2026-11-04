@@ -238,9 +238,11 @@ timing for LUTs, FFs, CARRY4, wide muxes, RAM/SRL LUTs, BRAM, BUFGMUX and
 DSP48A1 (below). nextpnr then places and routes timing-driven and reports
 Fmax against the clock periods from the UCF (`PERIOD`, or `TNM_NET` +
 `TIMESPEC`), carried through the clock buffers and derived for DCM/PLL
-outputs. A clock without a period is timed at nextpnr's default 12 MHz:
-the Mojo designs using `tests/mojo_v3.ucf` get the board's 50 MHz, those
-with their own `pins.ucf` (no period) the default.
+outputs. A clock without a period is timed at nextpnr's default 12 MHz.
+The Mojo test designs all give the board's 50 MHz (`tests/mojo_v3.ucf` and
+each `pins.ucf`), except the DSP characterization designs (`dsp_char*`,
+`dsp_casc_char*`), which are deliberately slow paths and stay at the
+default.
 
 **DSP48A1.** Its timing depends on which pipeline registers are on and, when
 OPMODE is tied to a constant, on the mode (ISE drops the paths the mode
