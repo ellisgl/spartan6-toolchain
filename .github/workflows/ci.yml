@@ -70,6 +70,16 @@ jobs:
           done
           exit $fail
 
+      - name: Other devices (chip database, checks, blinky)
+        run: |
+          for dp in xc6slx4:tqg144 xc6slx16:ftg256 xc6slx25:fgg484 xc6slx25t:csg324 xc6slx45:csg324; do
+            d=${dp%:*}; p=${dp#*:}
+            make -j$(nproc) DEVICE=$d PACKAGE=$p > build/$d.log 2>&1 || { tail -30 build/$d.log; exit 1; }
+            make check DEVICE=$d PACKAGE=$p | tail -1
+            make bit DEVICE=$d PACKAGE=$p TEST=blinky > build/$d-blinky.log 2>&1 || { tail -30 build/$d-blinky.log; exit 1; }
+            echo "$d-$p: $(grep -o 'Max frequency.*' build/$d-$p/blinky/nextpnr.log | tail -1)"
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: bitstreams
