@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Packages
         run: |
@@ -28,20 +28,20 @@ jobs:
         with:
           workspaces: exporter -> ../build/target
 
-      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - uses: YosysHQ/setup-oss-cad-suite@v4
 
       # Restore and save separately: the key follows the nextpnr sources, so
       # a run that didn't change them (an exact hit) has nothing to save.
       - name: ccache
         id: ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: ccache-${{ hashFiles('nextpnr/**/*.cc', 'nextpnr/**/*.h') }}
           restore-keys: ccache-
 
       - name: prjcombine database
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/spartan6-*.zstd
           key: prjcombine-db-${{ hashFiles('Makefile') }}
@@ -52,7 +52,7 @@ jobs:
 
       - name: Save ccache
         if: steps.ccache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.ccache.outputs.cache-primary-key }}
@@ -90,7 +90,7 @@ jobs:
             echo "$d-$p: $(grep -o 'Max frequency.*' build/$d-$p/blinky/nextpnr.log | tail -1)"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bitstreams
           path: build/*/design.bin
