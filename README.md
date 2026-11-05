@@ -730,6 +730,27 @@ TQG144's, as ISE lists them), VREF for the package's VREF pins.)
   devices other than the xc6slx9 use the xc6slx9's (same fabric).
 - **GTP, PCIe and memory controller** blocks.
 
+## Related projects
+
+- [prjcombine](https://codeberg.org/prjunnamed/prjcombine): the Spartan-6
+  database this toolchain is built on (exporter, bitstream and XDL writers).
+- [Project Unnamed](https://codeberg.org/prjunnamed/prjunnamed): a Rust
+  flow on prjcombine aiming at synthesis through bitstream for several
+  families; less mature than nextpnr, but the native consumer of
+  prjcombine's data, and the alternative to this toolchain's approach.
+- [nextpnr's himbaechel xilinx uarch](https://github.com/YosysHQ/nextpnr/tree/main/himbaechel/uarch/xilinx)
+  (mainline, 7-series) and [openXC7's nextpnr-xilinx](https://github.com/openXC7/nextpnr-xilinx)
+  (the older standalone fork): the 7-series counterparts this uarch was
+  modelled on. Spartan-6 logic is close to 7-series (4 LUT6s, 8 storage
+  elements, CARRY4, F7/F8 per slice), its interconnect and clocking aren't
+  (BUFH, BUFIO2/BUFIO2FB, BUFPLL, a different HCLK structure, mixed slice
+  types per CLB).
+- [yosys-spartan6-example](https://github.com/Streetwalrus/yosys-spartan6-example):
+  yosys synthesis with ISE doing place and route, the hybrid flow this
+  toolchain replaces. Running ISE from a container (`docker/ise`,
+  `tools/ise.sh`, see ISE above) keeps that flow, and this repo's ISE
+  cross-checks, usable without the IDE.
+
 ## Licence
 
 ISC (see `LICENSE`). Third-party code keeps its own licence: nextpnr in
